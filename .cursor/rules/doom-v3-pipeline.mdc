@@ -1,0 +1,32 @@
+---
+description: Pipeline de 3 fases de DOOM v3 (B0, radar, in/out). No volver a la ventana de 45s.
+alwaysApply: true
+---
+
+# DOOM v3 — 3 fases de selección
+
+No usar la ventana de observación de 45s de v2. El flujo es:
+
+## Paso 1 — Filtro B0 (admisión inmediata)
+
+Al detectar el create en Helius/Pump:
+
+- `HELIOS_SKIP` si el JSON de Helios marca farming, bundling o granja de bots (serial deploys, rejects, blacklist).
+- Liquidez de nacimiento ≥ **2.0 SOL**. Si no: `B0_REJECT: Pool insuficiente`.
+- Market cap inicial en **$400–$250,000** USD (override con `MIN_MC_USD` / `MAX_MC_USD`).
+- Antirug: cabal/bundling on-chain + dry-run Jupiter (`lite-api.jup.ag`) para honeypot o tax >5%.
+
+## Paso 2 — Radar de incubación (máx. 4 min)
+
+Si pasa B0, monitorear en el mismo WSS:
+
+- Mínimo **3** compras orgánicas válidas.
+- Breakout por saltos de precio (ticks Pump/Raydium), ráfaga de volumen o impulso de MC.
+- Si no hay fuerza o se estanca en **4 minutos**, abortar y liberar memoria. No comprar.
+
+## Paso 3 — Disparo y salida
+
+- Compra con Cartera A (trabajo).
+- Take profit / cobertura al **+30%**.
+- Trailing stop **8%** tras un rally (protege el margen).
+- PnL neto confirmado → `SystemProgram.transfer` A → Cartera B (vault).
