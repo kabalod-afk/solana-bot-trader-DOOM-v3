@@ -15,6 +15,7 @@ export class TradeEngine {
   private lastVaultedSol = 0;
   private readonly takeProfitMult: number;
   private readonly trailingPct: number;
+  private readonly positionMaxMs: number;
 
   constructor(
     private instanceBotId: string,
@@ -31,6 +32,7 @@ export class TradeEngine {
     const cfg = loadMomentumConfig(helios.weights().min_pool_sol_threshold);
     this.takeProfitMult = 1 + cfg.takeProfitPct / 100;
     this.trailingPct = cfg.trailingStopPct / 100;
+    this.positionMaxMs = cfg.positionMaxMs;
   }
 
   requestForceClose(): void {
@@ -69,7 +71,7 @@ export class TradeEngine {
         metrics.buyVolumeRatio,
         false
       );
-      await this.reportClose('Cierre forzado (Telegram)', pnl, sell.signature);
+      await this.reportClose('Cierre forzado (Telegram)', pnl, sell.signature, false);
       return 'CLOSED';
     }
 
@@ -89,7 +91,8 @@ export class TradeEngine {
       await this.reportClose(
         'Rug pull (dev vendiendo)',
         -this.currentSolExposed,
-        sell.signature
+        sell.signature,
+        true
       );
       return 'CLOSED';
     }
@@ -138,7 +141,30 @@ export class TradeEngine {
       await this.reportClose(
         `Trailing −${(this.trailingPct * 100).toFixed(0)}% ATH`,
         pnl,
-        sell.signature
+        sell.signature,
+        false
+      );
+      return 'CLOSED';
+    }
+
+    const elapsedMs = Date.now() - this.entryTimeMs;
+    if (elapsedMs >= this.positionMaxMs && !this.hasTakenProfit) {
+      const sell = await this.jito.executeFullSell(this.tokenAddress);
+      if (!sell.ok) return this.abortClose('stagnation');
+      const pnl =
+        (metrics.currentPriceUSD / this.entryPriceUSD - 1) * this.currentSolExposed;
+      await this.vaultProfit(pnl);
+      this.helios.updateAfterTrade(
+        pnl,
+        this.observationTimeMs,
+        metrics.buyVolumeRatio,
+        false
+      );
+      await this.reportClose(
+        `Estancamiento ${Math.round(this.positionMaxMs / 1000)}s sin TP`,
+        pnl,
+        sell.signature,
+        false
       );
       return 'CLOSED';
     }
@@ -159,7 +185,12 @@ export class TradeEngine {
     this.lastVaultedSol += await this.vault.sweepProfitsToVault(surplus);
   }
 
-  private async reportClose(reason: string, pnlSol: number, txHash: string): Promise<void> {
+  private async reportClose(
+    reason: string,
+    pnlSol: number,
+    txHash: string,
+    wasRug = false
+  ): Promise<void> {
     const durationSec = Math.max(0, Math.round((Date.now() - this.entryTimeMs) / 1000));
     const pnlPercent =
       this.baseInvestmentSol > 0 ? (pnlSol / this.baseInvestmentSol) * 100 : 0;
@@ -174,5 +205,6 @@ export class TradeEngine {
       this.vault.walletBBase58(),
       this.lastVaultedSol
     );
+    void this.telegram.notifyHelios(this.helios.briefAfterTrade(pnlSol, wasRug, this.tokenAddress));
   }
 }

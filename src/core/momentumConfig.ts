@@ -4,6 +4,7 @@ export interface MomentumConfig {
   minTxCount: number;
   minPoolSol: number;
   radarMaxMs: number;
+  positionMaxMs: number;
   takeProfitPct: number;
   trailingStopPct: number;
 }
@@ -20,8 +21,10 @@ export function loadMomentumConfig(heliosMinPoolSol = 2): MomentumConfig {
     minMcUSD: num('MIN_MC_USD', 400),
     maxMcUSD: num('MAX_MC_USD', 250_000),
     minTxCount: num('MIN_TX_COUNT', 3),
-    minPoolSol: num('MIN_POOL_SOL', heliosMinPoolSol),
+    // Lo aprendido (pool mínimo) manda el JSON de Helios, no MIN_POOL_SOL del .env
+    minPoolSol: heliosMinPoolSol,
     radarMaxMs: num('RADAR_MAX_MS', 240_000),
+    positionMaxMs: num('POSITION_MAX_MS', 240_000),
     takeProfitPct: num('TAKE_PROFIT_PCT', 30),
     trailingStopPct: num('TRAILING_STOP_PCT', 8),
   };

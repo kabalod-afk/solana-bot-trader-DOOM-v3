@@ -17,6 +17,7 @@ import {
   normalizeHeliusWssUrl,
 } from './blockchain/PoolListener';
 import { fetchRealPoolTick, rememberPoolSupply, PoolTickOpts } from './blockchain/poolTick';
+import { PoolLogMetrics, poolLogMentions } from './blockchain/poolLogMetrics';
 import { loadWalletA } from './core/loadWalletA';
 import { loadMomentumConfig } from './core/momentumConfig';
 import { getCachedSolPrice, refreshSolPrice } from './core/solPriceCache';
@@ -36,10 +37,16 @@ interface ActivePosition {
   engine: TradeEngine;
   token: string;
   pool: string;
+  deployer: string;
   interval: ReturnType<typeof setInterval>;
   tickLock: boolean;
   tickOpts?: PoolTickOpts;
+  logMetrics: PoolLogMetrics;
+  logUnsubs: Array<() => void>;
+  fallbackBuyRatio: number;
 }
+
+const sleep = (ms: number) => new Promise<void>((r) => setTimeout(r, ms));
 
 async function bootstrap(): Promise<void> {
   console.log('🚀 INICIANDO MOTOR DOOM v3 EN MAINNET...');
@@ -100,6 +107,7 @@ async function bootstrap(): Promise<void> {
   const jito = new JitoExecution(connection, walletA, jitoUrl);
   const vault = new VaultManager(connection, walletA, walletBPubkey);
   const telegram = new TelegramService(telegramToken, telegramChatId);
+  telegram.registerHeliosStatusHandler(() => helios.statusReport());
 
   const activeTokensSet = new Set<string>();
   const inflightTokens = new Set<string>();
@@ -124,16 +132,18 @@ async function bootstrap(): Promise<void> {
         solPriceUSD,
         item.tickOpts
       ).catch(() => null);
+      const live = item.logMetrics.snapshot(item.fallbackBuyRatio);
       await item.engine.processTick({
-        currentPriceUSD: tick?.currentPriceUSD || 0.0001,
+        currentPriceUSD: tick?.currentPriceUSD || 0,
         mcUSD: tick?.mcUSD || 0,
-        buyVolumeRatio: 0.5,
-        consecutiveSells: 0,
+        buyVolumeRatio: live.buyVolumeRatio,
+        consecutiveSells: live.consecutiveSells,
         txPerMinute: 0,
-        isDevSelling: false,
+        isDevSelling: live.isDevSelling,
         solPriceUSD,
       });
       clearInterval(item.interval);
+      for (const unsub of item.logUnsubs) unsub();
       activeTokensSet.delete(item.token);
       scheduler.releaseThread();
     }
@@ -142,7 +152,7 @@ async function bootstrap(): Promise<void> {
 
   const momentum = loadMomentumConfig(helios.brain.learned_weights.min_pool_sol_threshold);
   console.log(
-    `Helios ${helios.brain.version} | LIVE_TRADING=${liveTrading} | SOL≈$${solPriceUSD}`
+    `Helios ${helios.brain.version} | JSON-first=${helios.jsonOverApi()} | LIVE_TRADING=${liveTrading} | SOL≈$${solPriceUSD}`
   );
   console.log(
     `B0: pool≥${momentum.minPoolSol} SOL | MC $${momentum.minMcUSD}-$${momentum.maxMcUSD}`
@@ -151,7 +161,7 @@ async function bootstrap(): Promise<void> {
     `Radar: ≥${momentum.minTxCount} txs + breakout | máx ${Math.round(momentum.radarMaxMs / 1000)}s`
   );
   console.log(
-    `Salida: TP +${momentum.takeProfitPct}% | trailing ${momentum.trailingStopPct}% ATH`
+    `Salida: TP +${momentum.takeProfitPct}% | trailing ${momentum.trailingStopPct}% ATH | max pos ${Math.round(momentum.positionMaxMs / 1000)}s`
   );
 
   const flushHelios = () => {
@@ -178,6 +188,12 @@ async function bootstrap(): Promise<void> {
   await telegram.sendText(
     `🟢 *DOOM v3 ONLINE*\n• Modo: ${liveTrading ? 'LIVE' : 'DRY-RUN'}\n• Fases: B0 → radar 4 min → TP +${momentum.takeProfitPct}% / trailing ${momentum.trailingStopPct}%\n• Cartera A (trabajo): \`${derivedA}\`\n• Cartera B (vault): \`${walletBStr}\``
   );
+  await telegram.notifyHelios(
+    `🧠 <b>HELIOS ONLINE</b> — asistencia activa\n` +
+      `• Memoria JSON manda sobre Jupiter/cabal API (solo huecos sin aprender)\n` +
+      `• Briefing en B0, breakout y cierre\n` +
+      `• Escribe <code>helios</code> para ver el cerebro`
+  );
 
   const processBlockZeroChain = async (event: NewPoolEvent): Promise<void> => {
     const token = event.tokenAddress;
@@ -191,6 +207,11 @@ async function bootstrap(): Promise<void> {
     const heliosSkip = helios.shouldSkipAnalysis(event.deployerAddress);
     if (heliosSkip?.skip) {
       console.log(`[HELIOS_SKIP] ${token}: ${heliosSkip.reason}`);
+      if (/blacklist|rug/i.test(heliosSkip.reason)) {
+        void telegram.notifyHelios(
+          `🧠 <b>HELIOS_SKIP</b>\n<code>${token.slice(0, 8)}…</code>\n${heliosSkip.reason}`
+        );
+      }
       return;
     }
 
@@ -225,6 +246,15 @@ async function bootstrap(): Promise<void> {
     }
   };
 
+  const poolListener = new PoolListener(
+    wssUrl,
+    connection,
+    (event: NewPoolEvent) => processBlockZeroChain(event),
+    () => scheduler.tryAcquireInflight(),
+    () => scheduler.releaseInflight()
+  );
+  observer.bindListener(poolListener);
+
   const continueAfterBlockZero = async (
     event: NewPoolEvent,
     b0Result: { initialMcUSD: number; initialPoolSol: number; totalSupply?: number }
@@ -244,7 +274,13 @@ async function bootstrap(): Promise<void> {
         botInstanceId,
         token,
         b0Result.initialMcUSD,
-        b0Result.initialPoolSol
+        b0Result.initialPoolSol,
+        helios.briefAdmission(
+          event.deployerAddress,
+          b0Result.initialPoolSol,
+          b0Result.initialMcUSD,
+          token
+        )
       );
 
       const extraMentions = [
@@ -271,21 +307,42 @@ async function bootstrap(): Promise<void> {
 
       if (!obsResult.passed) {
         console.log(`[RADAR_REJECT] ${token}: ${obsResult.reason}`);
-        helios.noteWindowOutcome(event.deployerAddress, false, obsResult.reason);
+        helios.noteWindowOutcome(event.deployerAddress, false, obsResult.reason, token);
         activeTokensSet.delete(token);
         scheduler.releaseThread();
         return;
       }
 
+      const advice = helios.recommendEntry(
+        b0Result.initialPoolSol,
+        obsResult.buyVolumeRatio,
+        event.deployerAddress
+      );
+      const entrySizeSol = advice.sizeSol;
+
       if (obsResult.trigger) {
         console.log(
-          `[RADAR_PASS] ${token}: trigger=${obsResult.trigger} t=${obsResult.observationTimeMs}ms txs=${obsResult.txCount}`
+          `[RADAR_PASS] ${token}: trigger=${obsResult.trigger} t=${obsResult.observationTimeMs}ms txs=${obsResult.txCount} entry=${entrySizeSol} (${advice.note})`
         );
       }
+      void telegram.notifyHelios(
+        helios.briefBreakout(
+          obsResult.trigger ?? 'organic_impulse',
+          obsResult.txCount,
+          obsResult.buyVolumeRatio,
+          obsResult.observationTimeMs,
+          {
+            token,
+            deployer: event.deployerAddress,
+            entrySol: entrySizeSol,
+            note: advice.note,
+          }
+        ) + `\n• Tamaño: <b>${entrySizeSol.toFixed(2)} SOL</b> (${advice.note})`
+      );
 
       if (!liveTrading) {
         await telegram.sendText(
-          `🤖 *[${botInstanceId}] DRY-RUN OK:* \`${token.slice(0, 8)}…\` pasó B0+radar (${obsResult.observationTimeMs}ms, ${obsResult.txCount} txs, buy=${(obsResult.buyVolumeRatio * 100).toFixed(0)}%). Sin compra.`
+          `🤖 *[${botInstanceId}] DRY-RUN OK:* \`${token.slice(0, 8)}…\` pasó B0+radar (${obsResult.observationTimeMs}ms, ${obsResult.txCount} txs, buy=${(obsResult.buyVolumeRatio * 100).toFixed(0)}%). Helios pedía ${entrySizeSol} SOL. Sin compra.`
         );
         activeTokensSet.delete(token);
         scheduler.releaseThread();
@@ -293,16 +350,16 @@ async function bootstrap(): Promise<void> {
       }
 
       const balanceLamports = await connection.getBalance(walletA.publicKey);
-      if (balanceLamports / 1e9 < obsResult.entrySizeSol + 0.05) {
+      if (balanceLamports / 1e9 < entrySizeSol + 0.05) {
         console.log(
-          `[CAPITAL] ${botInstanceId}: insuficiente para ${obsResult.entrySizeSol} SOL + gas`
+          `[CAPITAL] ${botInstanceId}: insuficiente para ${entrySizeSol} SOL + gas`
         );
         activeTokensSet.delete(token);
         scheduler.releaseThread();
         return;
       }
 
-      const buy = await jito.executeBuy(token, obsResult.entrySizeSol);
+      const buy = await jito.executeBuy(token, entrySizeSol);
       if (!buy.ok) {
         activeTokensSet.delete(token);
         scheduler.releaseThread();
@@ -318,22 +375,41 @@ async function bootstrap(): Promise<void> {
         associatedBondingCurve: event.associatedBondingCurve,
         totalSupplyHint: b0Result.totalSupply,
       };
-      const entryTick = await fetchRealPoolTick(
+
+      let entryTick = await fetchRealPoolTick(
         connection,
         event.poolAddress,
         token,
         solPriceUSD,
         tickOpts
       );
-      const entryPrice = entryTick.currentPriceUSD || 0.0001;
+      for (let i = 0; i < 4 && entryTick.currentPriceUSD <= 0; i++) {
+        await sleep(800);
+        entryTick = await fetchRealPoolTick(
+          connection,
+          event.poolAddress,
+          token,
+          solPriceUSD,
+          tickOpts
+        );
+      }
+      if (entryTick.currentPriceUSD <= 0) {
+        console.error(`[ENTRY_ABORT] ${token}: precio on-chain 0 tras compra — evacuando`);
+        await jito.executeFullSell(token);
+        activeTokensSet.delete(token);
+        scheduler.releaseThread();
+        return;
+      }
+
+      const entryPrice = entryTick.currentPriceUSD;
       const opNum = opCounter++;
 
-      telegram.notifyStart(botInstanceId, opNum, token, obsResult.entrySizeSol, entryPrice);
+      telegram.notifyStart(botInstanceId, opNum, token, entrySizeSol, entryPrice);
       void telegram.notifyBuyExecuted(
         token,
         obsResult.currentMcUsd ?? entryTick.mcUSD,
         obsResult.txCount,
-        obsResult.entrySizeSol,
+        entrySizeSol,
         buy.signature
       );
 
@@ -342,23 +418,37 @@ async function bootstrap(): Promise<void> {
         token,
         event.deployerAddress,
         obsResult.observationTimeMs,
-        obsResult.entrySizeSol,
+        entrySizeSol,
         jito,
         vault,
         telegram,
         helios
       );
 
+      const logMetrics = new PoolLogMetrics();
+      const logMentionAddrs = poolLogMentions(event.poolAddress, token, [
+        event.associatedBondingCurve,
+        event.coinVault,
+        event.pcVault,
+      ].filter((x): x is string => !!x));
+      const logUnsubs = logMentionAddrs.map((addr) =>
+        poolListener.subscribePoolLogs(addr, (logs) => {
+          logMetrics.consume(logs, event.deployerAddress);
+        })
+      );
+
       const position: ActivePosition = {
         engine,
         token,
         pool: event.poolAddress,
+        deployer: event.deployerAddress,
         interval: null as unknown as ReturnType<typeof setInterval>,
         tickLock: false,
         tickOpts,
+        logMetrics,
+        logUnsubs,
+        fallbackBuyRatio: obsResult.buyVolumeRatio,
       };
-
-      const lastBuyRatio = obsResult.buyVolumeRatio;
 
       position.interval = setInterval(() => {
         void (async () => {
@@ -374,18 +464,20 @@ async function bootstrap(): Promise<void> {
             );
             if (tick.currentPriceUSD <= 0) return;
 
+            const live = logMetrics.snapshot(obsResult.buyVolumeRatio);
             const status = await engine.processTick({
               currentPriceUSD: tick.currentPriceUSD,
               mcUSD: tick.mcUSD,
-              buyVolumeRatio: lastBuyRatio,
-              consecutiveSells: 0,
+              buyVolumeRatio: live.buyVolumeRatio,
+              consecutiveSells: live.consecutiveSells,
               txPerMinute: 15,
-              isDevSelling: false,
+              isDevSelling: live.isDevSelling,
               solPriceUSD,
             });
 
             if (status === 'CLOSED') {
               clearInterval(position.interval);
+              for (const unsub of logUnsubs) unsub();
               activeTokensSet.delete(token);
               scheduler.releaseThread();
               const idx = activeEnginesList.findIndex((e) => e.token === token);
@@ -411,14 +503,6 @@ async function bootstrap(): Promise<void> {
     }
   };
 
-  const poolListener = new PoolListener(
-    wssUrl,
-    connection,
-    (event: NewPoolEvent) => processBlockZeroChain(event),
-    () => scheduler.tryAcquireInflight(),
-    () => scheduler.releaseInflight()
-  );
-  observer.bindListener(poolListener);
   poolListener.start();
 
   console.log(

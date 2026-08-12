@@ -22,6 +22,15 @@
     "average_pnl_sol": 0.0
   },
   "analysis_memory": {
-    "deployers": {}
+    "deployers": {},
+    "tokens": {}
+  },
+  "assistance": {
+    "enabled": true,
+    "last_verdict": null,
+    "log": []
+  },
+  "policy": {
+    "json_over_api": true
   }
 }

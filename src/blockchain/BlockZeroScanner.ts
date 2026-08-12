@@ -170,23 +170,45 @@ export class BlockZeroScanner {
       };
     }
 
-    if (await this.traceCabalFundingOnChain(deployer)) {
+    const gate = this.helios.apiGate(deployerAddress, tokenAddress);
+    if (gate.rejectFromJson) {
+      console.log(`[HELIOS_JSON] ${deployerAddress.slice(0, 8)}… ${gate.rejectFromJson}`);
       return {
         passed: false,
-        reason: 'Cluster de Cabal/Bundling detectado',
+        reason: gate.rejectFromJson,
         initialMcUSD,
         initialPoolSol: poolMetrics.solAmount,
       };
     }
 
-    const dryRunOk = await this.simulateChainedBuySell(tokenAddress);
-    if (!dryRunOk) {
-      return {
-        passed: false,
-        reason: 'Dry-Run fallido (Buy→Sell tax >5% o Honeypot / sin ruta)',
-        initialMcUSD,
-        initialPoolSol: poolMetrics.solAmount,
-      };
+    if (gate.needCabalRpc) {
+      const isCabal = await this.traceCabalFundingOnChain(deployer);
+      this.helios.noteCabalResult(deployerAddress, isCabal);
+      if (isCabal) {
+        return {
+          passed: false,
+          reason: 'Cluster de Cabal/Bundling detectado',
+          initialMcUSD,
+          initialPoolSol: poolMetrics.solAmount,
+        };
+      }
+    } else {
+      console.log(`[HELIOS_JSON] cabal skip API — memoria limpia ${deployerAddress.slice(0, 8)}…`);
+    }
+
+    if (gate.needJupiter) {
+      const dryRunOk = await this.simulateChainedBuySell(tokenAddress);
+      this.helios.noteJupiterResult(deployerAddress, tokenAddress, dryRunOk);
+      if (!dryRunOk) {
+        return {
+          passed: false,
+          reason: 'Dry-Run fallido (Buy→Sell tax >5% o Honeypot / sin ruta)',
+          initialMcUSD,
+          initialPoolSol: poolMetrics.solAmount,
+        };
+      }
+    } else {
+      console.log(`[HELIOS_JSON] Jupiter skip API — dry-run ya aprendido ${tokenAddress.slice(0, 8)}…`);
     }
 
     return {

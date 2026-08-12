@@ -4,6 +4,7 @@ export class TelegramService {
   private bot: TelegramBot;
   private isPausedFlag = false;
   private onForceCloseCallback?: () => Promise<void>;
+  private onHeliosStatus?: () => string;
 
   constructor(
     token: string,
@@ -17,6 +18,10 @@ export class TelegramService {
 
   public registerForceCloseHandler(handler: () => Promise<void>): void {
     this.onForceCloseCallback = handler;
+  }
+
+  public registerHeliosStatusHandler(handler: () => string): void {
+    this.onHeliosStatus = handler;
   }
 
   /**
@@ -66,6 +71,16 @@ export class TelegramService {
             : `🟢 *ESTADO:* Operando activamente.`
         );
       }
+
+      if (
+        text === 'helios' ||
+        text === '/helios' ||
+        text.includes('cerebro') ||
+        text.includes('asistencia')
+      ) {
+        const report = this.onHeliosStatus?.() ?? '🧠 Helios no está enlazado.';
+        await this.sendHtml(report);
+      }
     });
   }
 
@@ -111,12 +126,17 @@ export class TelegramService {
     return this.esc(mint.slice(0, 6));
   }
 
+  public async notifyHelios(html: string): Promise<void> {
+    await this.sendHtml(html);
+  }
+
   /** Paso 1: B0 aprobado → radar de incubación (máx 4 min). */
   public async notifyRadarEntry(
     mint: string,
     poolSol: number,
     mcUsd: number,
-    symbol?: string
+    symbol?: string,
+    heliosBrief?: string
   ): Promise<void> {
     const msg =
       `📡 <b>[RADAR B0] Token Aprobado</b>\n\n` +
@@ -124,7 +144,8 @@ export class TelegramService {
       `• <b>Mint:</b> <code>${this.esc(mint)}</code>\n` +
       `• <b>Pool Inicial:</b> ${poolSol.toFixed(2)} SOL\n` +
       `• <b>MC Inicial:</b> $${mcUsd.toFixed(0)} USD\n` +
-      `• <b>Estado:</b> Radar de incubación (Máx 4 min, ≥3 txs + breakout)...`;
+      `• <b>Estado:</b> Radar de incubación (Máx 4 min, ≥3 txs + breakout)...` +
+      (heliosBrief ? `\n\n${heliosBrief}` : '');
     await this.sendHtml(msg);
   }
 
@@ -201,9 +222,10 @@ export class TelegramService {
     _botId: string,
     token: string,
     mcUSD: number,
-    poolSol: number
+    poolSol: number,
+    heliosBrief?: string
   ): void {
-    void this.notifyRadarEntry(token, poolSol, mcUSD);
+    void this.notifyRadarEntry(token, poolSol, mcUSD, undefined, heliosBrief);
   }
 
   notifyAnalysis(_botId: string, token: string, mcUSD: number, poolSol: number): void {

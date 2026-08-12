@@ -44,8 +44,24 @@ export class JitoExecution {
   async executeBuy(tokenAddress: string, amountSol: number): Promise<ExecResult> {
     try {
       console.log(`[JITO_BUY_REAL] Firmando swap ${amountSol} SOL -> ${tokenAddress}`);
+      const beforeBal = await this.tokenUiBalance(tokenAddress);
       const tx = await this.buildSwapTransaction(tokenAddress, amountSol, 'BUY');
-      return await this.sendJitoBundle(tx, 0.005);
+      const result = await this.sendJitoBundle(tx, 0.005);
+      if (!result.ok) return result;
+
+      const confirmed = await this.confirmSignature(result.signature);
+      if (!confirmed) {
+        console.error('[JITO_BUY] Bundle enviado pero swap no confirmado on-chain');
+        return FAIL;
+      }
+
+      const afterBal = await this.tokenUiBalance(tokenAddress);
+      if (afterBal <= beforeBal) {
+        console.error('[JITO_BUY] Balance SPL sin incremento tras confirmación');
+        return FAIL;
+      }
+
+      return result;
     } catch (e) {
       console.error('[JITO_BUY_ERROR] Fallo en compra:', e);
       return FAIL;
@@ -199,6 +215,40 @@ export class JitoExecution {
     }
   }
 
+  private sleep(ms: number): Promise<void> {
+    return new Promise((resolve) => setTimeout(resolve, ms));
+  }
+
+  private async tokenUiBalance(tokenAddress: string): Promise<number> {
+    const mint = new PublicKey(tokenAddress);
+    const parsed = await this.connection.getParsedTokenAccountsByOwner(
+      this.walletA.publicKey,
+      { mint }
+    );
+    return parsed.value[0]?.account.data.parsed?.info?.tokenAmount?.uiAmount ?? 0;
+  }
+
+  /** Espera confirmación on-chain antes de abrir posición en TradeEngine. */
+  private async confirmSignature(signature: string, timeoutMs = 45_000): Promise<boolean> {
+    if (!signature) return false;
+    const start = Date.now();
+    while (Date.now() - start < timeoutMs) {
+      const statuses = await this.connection
+        .getSignatureStatuses([signature])
+        .catch(() => null);
+      const st = statuses?.value[0];
+      if (st?.err) return false;
+      if (
+        st?.confirmationStatus === 'confirmed' ||
+        st?.confirmationStatus === 'finalized'
+      ) {
+        return true;
+      }
+      await this.sleep(1500);
+    }
+    return false;
+  }
+
   private signatureOf(tx: VersionedTransaction): string {
     try {
       const sig = tx.signatures[0];
@@ -272,7 +322,8 @@ export class JitoExecution {
           { signature: sig, ...latest },
           'confirmed'
         );
-        return { ok: true, signature: sig };
+        const confirmed = await this.confirmSignature(sig, 30_000);
+        return confirmed ? { ok: true, signature: sig } : FAIL;
       } catch (e) {
         console.error('[JITO_FALLBACK_RPC] Fallo:', e);
         return FAIL;
@@ -281,6 +332,8 @@ export class JitoExecution {
 
     const swapSig = this.signatureOf(tx);
     console.log(`[JITO_BUNDLE] OK bundleId=${body.result} swap=${swapSig}`);
-    return { ok: true, signature: swapSig };
+    if (!swapSig) return FAIL;
+    const confirmed = await this.confirmSignature(swapSig);
+    return confirmed ? { ok: true, signature: swapSig } : FAIL;
   }
 }

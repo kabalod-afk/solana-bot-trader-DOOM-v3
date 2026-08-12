@@ -14,7 +14,9 @@ Al detectar el create en Helius/Pump:
 - `HELIOS_SKIP` si el JSON de Helios marca farming, bundling o granja de bots (serial deploys, rejects, blacklist).
 - Liquidez de nacimiento ≥ **2.0 SOL**. Si no: `B0_REJECT: Pool insuficiente`.
 - Market cap inicial en **$400–$250,000** USD (override con `MIN_MC_USD` / `MAX_MC_USD`).
-- Antirug: cabal/bundling on-chain + dry-run Jupiter (`lite-api.jup.ag`) para honeypot o tax >5%.
+- Antirug: cabal/bundling y Jupiter dry-run **solo si el JSON no tiene memoria** de ese deployer. Si Helios ya aprendió (`jupiterOk`, `cabalClean`, fails repetidos), no se vuelve a llamar la API.
+- Umbral de pool mínimo: `learned_weights.min_pool_sol_threshold` del JSON (no `MIN_POOL_SOL` del .env).
+- `policy.json_over_api: true` en `helios_brain.json`.
 
 ## Paso 2 — Radar de incubación (máx. 4 min)
 
@@ -29,4 +31,14 @@ Si pasa B0, monitorear en el mismo WSS:
 - Compra con Cartera A (trabajo).
 - Take profit / cobertura al **+30%**.
 - Trailing stop **8%** tras un rally (protege el margen).
-- PnL neto confirmado → `SystemProgram.transfer` A → Cartera B (vault).
+## Asistencia Helios
+
+Helios no es solo JSON silencioso. Habla en Telegram:
+
+- Al arrancar: `HELIOS ONLINE`
+- B0 admitido: briefing de deployer (vistos/rejects/serial) + veredicto ADMITIR
+- Breakout: gatillo, txs, tamaño de entrada recomendado
+- Cierre: ajusta pesos y reporta WR / PnL medio
+- `HELIOS_SKIP` a Telegram solo si es blacklist/rug (el resto queda en consola para no spamear)
+- Comando Telegram: `helios` / `cerebro` / `asistencia`
+- Cada veredicto se escribe en `helios_brain.json` → `assistance.last_verdict` y `assistance.log` (máx. 80).
