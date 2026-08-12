@@ -493,9 +493,11 @@ export class BlockZeroScanner {
 
   private async traceCabalFundingOnChain(deployer: PublicKey): Promise<boolean> {
     const sigs = await this.connection
-      .getSignaturesForAddress(deployer, { limit: 8 })
+      .getSignaturesForAddress(deployer, { limit: 20 })
       .catch(() => []);
-    const twoHoursAgo = Date.now() / 1000 - 2 * 3600;
-    return sigs.filter((s) => (s.blockTime ?? 0) >= twoHoursAgo).length >= 7;
+    const windowSec = Date.now() / 1000 - 24 * 3600;
+    const recent = sigs.filter((s) => (s.blockTime ?? 0) >= windowSec).length;
+    // Antigranja suave: solo flag si actividad extrema (12+ txs / 24h)
+    return recent >= 12;
   }
 }

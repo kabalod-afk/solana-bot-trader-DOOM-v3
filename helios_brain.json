@@ -9,8 +9,9 @@
     "log_burst_buys": 8,
     "organic_mc_multiplier": 1.2,
     "min_unique_wallets": 3,
-    "serial_deploys_per_2h": 8,
-    "skip_after_rejects": 4
+    "serial_deploys_per_2h": 40,
+    "serial_window_hours": 24,
+    "skip_after_rejects": 10
   },
   "cabal_patterns": {
     "blacklisted_funding_wallets": [],

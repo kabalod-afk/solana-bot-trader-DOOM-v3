@@ -10,7 +10,10 @@ export interface HeliosLearnedWeights {
   log_burst_buys: number;
   organic_mc_multiplier: number;
   min_unique_wallets: number;
+  /** Máx. creates del mismo deployer en la ventana serial (antigranja suave). */
   serial_deploys_per_2h: number;
+  /** Ventana rolling para contar serial deploys (horas). Default 24h — pumps 24–96h. */
+  serial_window_hours: number;
   skip_after_rejects: number;
 }
 
@@ -84,11 +87,11 @@ const DEFAULT_WEIGHTS: HeliosLearnedWeights = {
   log_burst_buys: 8,
   organic_mc_multiplier: 1.2,
   min_unique_wallets: 3,
-  serial_deploys_per_2h: 8,
-  skip_after_rejects: 4,
+  serial_deploys_per_2h: 40,
+  serial_window_hours: 24,
+  skip_after_rejects: 10,
 };
 
-const TWO_HOURS_MS = 2 * 3600 * 1000;
 const MAX_DEPLOYERS = 500;
 const MAX_TOKENS = 400;
 const MAX_ASSIST_LOG = 80;
@@ -282,6 +285,7 @@ export class HeliosEngine {
   ): string {
     const s = this.deployerSnapshot(deployer);
     const serialCap = this.weights().serial_deploys_per_2h;
+    const serialWin = this.weights().serial_window_hours;
     const risk =
       s.rejects >= 2 ? 'cautela (rejects previos)' : s.seen <= 1 ? 'deployer nuevo' : 'historial limpio';
     this.logAssistance({
@@ -295,7 +299,7 @@ export class HeliosEngine {
     }, true);
     return (
       `🧠 <b>HELIOS</b> — admisión B0\n` +
-      `• Deployer: ${s.seen} vistos / ${s.rejects} rejects / serial ${s.windowSeen}/${serialCap} (2h)\n` +
+      `• Deployer: ${s.seen} vistos / ${s.rejects} rejects / serial ${s.windowSeen}/${serialCap} (${serialWin}h)\n` +
       `• Pool ${poolSol.toFixed(2)} SOL · MC $${mcUsd.toFixed(0)}\n` +
       `• Veredicto: <b>ADMITIR</b> → radar 4 min (${risk})\n` +
       `• JSON: helios_brain.json actualizado`
@@ -390,7 +394,7 @@ export class HeliosEngine {
       `• Trades: ${m.total_trades} · WR ${(m.win_rate * 100).toFixed(0)}% · PnL medio ${m.average_pnl_sol >= 0 ? '+' : ''}${m.average_pnl_sol.toFixed(3)} SOL\n` +
       `• Deployers en memoria: ${deployers} · Blacklist: ${bl}\n` +
       `• Pesos: pool≥${w.min_pool_sol_threshold} SOL · buy≥${w.ideal_buy_ratio} · burst ${w.log_burst_buys} logs / ${w.volume_burst_sol} SOL\n` +
-      `• Skip: serial ${w.serial_deploys_per_2h}/2h · rejects≥${w.skip_after_rejects}` +
+      `• Skip: serial ${w.serial_deploys_per_2h}/${w.serial_window_hours}h · rejects≥${w.skip_after_rejects}` +
       `• Política: JSON-first (API solo si no hay memoria)` +
       lastLine +
       `\n• Archivo: <code>helios_brain.json</code>`
@@ -417,7 +421,7 @@ export class HeliosEngine {
     if (this.isBlacklisted(deployer)) {
       reason = 'HELIOS_SKIP: deployer en blacklist (rug confirmado)';
     } else if (this.isSerialCabal(deployer)) {
-      reason = 'HELIOS_SKIP: farming/serial deploys (cabal local)';
+      reason = `HELIOS_SKIP: serial deployer (${this.weights().serial_deploys_per_2h}+ en ${this.weights().serial_window_hours}h)`;
     } else {
       const mem = this.brain.analysis_memory.deployers[deployer];
       if (mem && mem.rejects >= this.weights().skip_after_rejects) {
@@ -542,9 +546,13 @@ export class HeliosEngine {
     return map[address];
   }
 
+  private serialWindowMs(): number {
+    return this.weights().serial_window_hours * 3600 * 1000;
+  }
+
   private touchWindow(mem: DeployerMemory): void {
     const now = Date.now();
-    if (now - mem.windowStart > TWO_HOURS_MS) {
+    if (now - mem.windowStart > this.serialWindowMs()) {
       mem.windowStart = now;
       mem.windowSeen = 0;
     }
