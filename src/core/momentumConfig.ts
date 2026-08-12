@@ -9,7 +9,7 @@ export interface MomentumConfig {
   trailingStopPct: number;
 }
 
-export function loadMomentumConfig(heliosMinPoolSol = 2): MomentumConfig {
+export function loadMomentumConfig(heliosMinPoolSol = 1): MomentumConfig {
   const num = (key: string, fallback: number): number => {
     const raw = process.env[key];
     if (raw === undefined || raw === '') return fallback;
@@ -17,12 +17,13 @@ export function loadMomentumConfig(heliosMinPoolSol = 2): MomentumConfig {
     return Number.isFinite(n) ? n : fallback;
   };
 
+  const envPool = num('MIN_POOL_SOL', NaN);
   return {
     minMcUSD: num('MIN_MC_USD', 400),
     maxMcUSD: num('MAX_MC_USD', 250_000),
     minTxCount: num('MIN_TX_COUNT', 3),
-    // Lo aprendido (pool mínimo) manda el JSON de Helios, no MIN_POOL_SOL del .env
-    minPoolSol: heliosMinPoolSol,
+    // .env MIN_POOL_SOL pisa el JSON (útil en Ocean). Si no está, manda Helios.
+    minPoolSol: Number.isFinite(envPool) ? envPool : heliosMinPoolSol,
     radarMaxMs: num('RADAR_MAX_MS', 240_000),
     positionMaxMs: num('POSITION_MAX_MS', 240_000),
     takeProfitPct: num('TAKE_PROFIT_PCT', 30),

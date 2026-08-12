@@ -16,10 +16,10 @@ Por defecto `CANDIDATE_SOURCE=phantom_launches`: se lee la columna **Launches** 
 Al detectar un candidato (Phantom Launches o create Helius/Pump):
 
 - `HELIOS_SKIP` si el JSON de Helios marca farming, bundling o granja de bots (serial deploys, rejects, blacklist).
-- Liquidez de nacimiento ≥ **1.0 SOL**. Si no: `B0_REJECT: Pool insuficiente`. El radar (fase 2) corta los que no tienen fuerza.
+- Liquidez de nacimiento ≥ **1.0 SOL** (`helios_brain.json`). En Ocean puedes pisarlo con `MIN_POOL_SOL` en el `.env`. Si no: `B0_REJECT: Pool insuficiente`. El radar (fase 2) corta los que no tienen fuerza.
 - Market cap inicial en **$400–$250,000** USD (override con `MIN_MC_USD` / `MAX_MC_USD`).
 - Antirug: cabal/bundling y Jupiter dry-run **solo si el JSON no tiene memoria** de ese deployer. Si Helios ya aprendió (`jupiterOk`, `cabalClean`, fails repetidos), no se vuelve a llamar la API.
-- Umbral de pool mínimo: `learned_weights.min_pool_sol_threshold` del JSON (no `MIN_POOL_SOL` del .env).
+- Umbral de pool mínimo: `MIN_POOL_SOL` del `.env` si está definido; si no, `learned_weights.min_pool_sol_threshold` del JSON.
 - `policy.json_over_api: true` en `helios_brain.json`.
 
 ## Paso 2 — Radar de incubación (máx. 4 min)
