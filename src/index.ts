@@ -197,7 +197,7 @@ async function bootstrap(): Promise<void> {
     console.log(
       watchPhantom
         ? '🧪 DRY-RUN: Phantom Launches → B0 → radar 4 min; sin compras. Sin firehose de creates Helius.'
-        : '🧪 DRY-RUN: Helius → B0 (≥2 SOL, MC $400–$250k) → radar 4 min; sin compras.'
+        : '🧪 DRY-RUN: Helius → B0 (≥1 SOL, MC $400–$250k) → radar 4 min; sin compras.'
     );
   }
 

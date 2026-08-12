@@ -84,7 +84,7 @@ export interface HeliosBrainSchema {
 
 const DEFAULT_WEIGHTS: HeliosLearnedWeights = {
   min_observation_window_ms: 3_000,
-  min_pool_sol_threshold: 2.0,
+  min_pool_sol_threshold: 1.0,
   ideal_buy_ratio: 0.6,
   derisk_sensitivity: 0.3,
   volume_burst_sol: 1.5,
