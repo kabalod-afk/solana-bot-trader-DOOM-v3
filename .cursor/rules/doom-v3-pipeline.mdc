@@ -35,14 +35,13 @@ Si pasa B0, monitorear en el mismo WSS:
 - Compra con Cartera A (trabajo).
 - Take profit / cobertura al **+30%**.
 - Trailing stop **8%** tras un rally (protege el margen).
-## Asistencia Helios
 
-Helios no es solo JSON silencioso. Habla en Telegram:
+## Telegram — solo 3 momentos (el resto a logs)
 
-- Al arrancar: `HELIOS ONLINE`
-- B0 admitido: briefing de deployer (vistos/rejects/serial) + veredicto ADMITIR
-- Breakout: gatillo, txs, tamaño de entrada recomendado
-- Cierre: ajusta pesos y reporta WR / PnL medio
-- `HELIOS_SKIP` a Telegram solo si es blacklist/rug (el resto queda en consola para no spamear)
-- Comando Telegram: `helios` / `cerebro` / `asistencia`
-- Cada veredicto se escribe en `helios_brain.json` → `assistance.last_verdict` y `assistance.log` (máx. 80).
+El chat no recibe el embudo (B0_REJECT, HELIOS_SKIP, radar abort, ADMITIR, breakout). Eso queda en consola/PM2. Helios sigue escribiendo veredictos en `helios_brain.json` → `assistance.last_verdict` y `assistance.log` (máx. 80).
+
+1. **Status Check** (una vez al arrancar): `LIVE_TRADING=true|false`, WebSocket Helius conectado, 🔑 Cartera A (trabajo) y 🏦 Cartera B (vault).
+2. **Entrada** (compra ejecutada tras las 3 fases): nombre/symbol, mint, MC de entrada, liquidez del pool, DexScreener + Photon. En dry-run: etiqueta `[DRY-RUN]`.
+3. **Salida** (venta por TP / trailing / límite 4 min): PnL % y SOL. Si hay ganancia en live: transferencia A → B con signature. Si `LIVE_TRADING=false`: etiqueta `[VAULT_DRY]`.
+
+Comando on-demand: `helios` / `cerebro` / `asistencia`.

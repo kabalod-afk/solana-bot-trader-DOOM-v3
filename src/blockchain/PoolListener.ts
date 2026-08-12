@@ -227,6 +227,7 @@ export class PoolListener {
   private poolHandlers = new Map<string, Set<PoolLogHandler>>();
   private pendingCreates: Array<{ signature: string; kind: 'raydium' | 'pump' }> = [];
   private drainingPending = false;
+  private openWaiters: Array<(ok: boolean) => void> = [];
 
   constructor(
     wssUrl: string,
@@ -290,6 +291,7 @@ export class PoolListener {
           }
         }
       }, 45_000);
+      this.flushOpenWaiters(true);
     });
 
     this.ws.on('message', (data: WebSocket.RawData) => {
@@ -310,6 +312,37 @@ export class PoolListener {
       if (this.reconnectTimer) return;
       this.scheduleReconnect();
     });
+  }
+
+  public isOpen(): boolean {
+    return this.ws?.readyState === WebSocket.OPEN;
+  }
+
+  /** Espera el primer `open` del WSS Helius (o timeout). */
+  public waitUntilOpen(timeoutMs = 20_000): Promise<boolean> {
+    if (this.isOpen()) return Promise.resolve(true);
+    return new Promise((resolve) => {
+      let settled = false;
+      const finish = (ok: boolean) => {
+        if (settled) return;
+        settled = true;
+        resolve(ok);
+      };
+      const timer = setTimeout(() => {
+        this.openWaiters = this.openWaiters.filter((w) => w !== wrapped);
+        finish(false);
+      }, timeoutMs);
+      const wrapped = (ok: boolean) => {
+        clearTimeout(timer);
+        finish(ok);
+      };
+      this.openWaiters.push(wrapped);
+    });
+  }
+
+  private flushOpenWaiters(ok: boolean): void {
+    const waiters = this.openWaiters.splice(0);
+    for (const w of waiters) w(ok);
   }
 
   /**

@@ -3,6 +3,12 @@ import { VaultManager } from './VaultManager';
 import { TelegramService } from '../services/TelegramService';
 import { HeliosEngine } from '../core/HeliosEngine';
 import { loadMomentumConfig } from '../core/momentumConfig';
+import { isLiveTrading } from '../core/jupiter';
+
+export interface TradeTokenMeta {
+  name?: string;
+  symbol?: string;
+}
 
 export class TradeEngine {
   private highestPriceUSD = 0;
@@ -13,6 +19,8 @@ export class TradeEngine {
   private entryTimeMs = Date.now();
   private forceCloseRequested = false;
   private lastVaultedSol = 0;
+  private lastVaultSignature = '';
+  private realizedPnlSol = 0;
   private readonly takeProfitMult: number;
   private readonly trailingPct: number;
   private readonly positionMaxMs: number;
@@ -26,7 +34,8 @@ export class TradeEngine {
     private jito: JitoExecution,
     private vault: VaultManager,
     private telegram: TelegramService,
-    private helios: HeliosEngine
+    private helios: HeliosEngine,
+    private tokenMeta: TradeTokenMeta = {}
   ) {
     this.currentSolExposed = baseInvestmentSol;
     const cfg = loadMomentumConfig(helios.weights().min_pool_sol_threshold);
@@ -48,8 +57,6 @@ export class TradeEngine {
     isDevSelling: boolean;
     solPriceUSD?: number;
   }): Promise<'RUNNING' | 'CLOSED'> {
-    const solPrice = metrics.solPriceUSD ?? 160;
-
     if (this.entryPriceUSD === 0) {
       this.entryPriceUSD = metrics.currentPriceUSD;
       this.highestPriceUSD = metrics.currentPriceUSD;
@@ -66,20 +73,20 @@ export class TradeEngine {
         (metrics.currentPriceUSD / this.entryPriceUSD - 1) * this.currentSolExposed;
       await this.vaultProfit(pnl);
       this.helios.updateAfterTrade(
-        pnl,
+        this.realizedPnlSol + pnl,
         this.observationTimeMs,
         metrics.buyVolumeRatio,
         false
       );
-      await this.reportClose('Cierre forzado (Telegram)', pnl, sell.signature, false);
+      await this.reportClose('Cierre forzado (Telegram)', pnl, false);
       return 'CLOSED';
     }
 
     if (metrics.isDevSelling) {
       const sell = await this.jito.executeEmergencyEvacuation(this.tokenAddress);
       if (!sell.ok) return this.abortClose('rug');
-      void this.telegram.sendText(
-        `🚨 *[${this.instanceBotId}] RUG PULL EN MEMPOOL.* Evacuado vía Jito.`
+      console.log(
+        `[RUG] ${this.instanceBotId} ${this.tokenAddress}: evacuado vía Jito (${sell.signature})`
       );
       this.helios.updateAfterTrade(
         -this.currentSolExposed,
@@ -88,12 +95,7 @@ export class TradeEngine {
         true,
         this.deployerAddress
       );
-      await this.reportClose(
-        'Rug pull (dev vendiendo)',
-        -this.currentSolExposed,
-        sell.signature,
-        true
-      );
+      await this.reportClose('Rug pull (dev vendiendo)', -this.currentSolExposed, true);
       return 'CLOSED';
     }
 
@@ -111,12 +113,10 @@ export class TradeEngine {
         this.currentSolExposed -= coveredSol;
         this.hasTakenProfit = true;
         this.trailingArmed = true;
+        this.realizedPnlSol += realizedPnl;
         await this.vaultProfit(realizedPnl);
-        this.telegram.notifyTakeProfit(
-          this.instanceBotId,
-          currentMult,
-          Math.max(0, realizedPnl * solPrice),
-          `TP +${((this.takeProfitMult - 1) * 100).toFixed(0)}% (cobertura 50%)`
+        console.log(
+          `[TP] ${this.instanceBotId} cobertura 50% @ ${currentMult.toFixed(2)}x pnl=${realizedPnl.toFixed(4)} SOL`
         );
       }
     }
@@ -133,15 +133,14 @@ export class TradeEngine {
         (metrics.currentPriceUSD / this.entryPriceUSD - 1) * this.currentSolExposed;
       await this.vaultProfit(pnl);
       this.helios.updateAfterTrade(
-        pnl,
+        this.realizedPnlSol + pnl,
         this.observationTimeMs,
         metrics.buyVolumeRatio,
         false
       );
       await this.reportClose(
-        `Trailing −${(this.trailingPct * 100).toFixed(0)}% ATH`,
+        `Trailing Stop −${(this.trailingPct * 100).toFixed(0)}% ATH`,
         pnl,
-        sell.signature,
         false
       );
       return 'CLOSED';
@@ -155,15 +154,14 @@ export class TradeEngine {
         (metrics.currentPriceUSD / this.entryPriceUSD - 1) * this.currentSolExposed;
       await this.vaultProfit(pnl);
       this.helios.updateAfterTrade(
-        pnl,
+        this.realizedPnlSol + pnl,
         this.observationTimeMs,
         metrics.buyVolumeRatio,
         false
       );
       await this.reportClose(
-        `Estancamiento ${Math.round(this.positionMaxMs / 1000)}s sin TP`,
+        `límite de ${Math.round(this.positionMaxMs / 1000)}s`,
         pnl,
-        sell.signature,
         false
       );
       return 'CLOSED';
@@ -182,29 +180,30 @@ export class TradeEngine {
   private async vaultProfit(pnlSol: number): Promise<void> {
     const surplus = Math.max(0, pnlSol);
     if (surplus <= 0) return;
-    this.lastVaultedSol += await this.vault.sweepProfitsToVault(surplus);
+    const swept = await this.vault.sweepProfitsToVault(surplus);
+    this.lastVaultedSol += swept.sol;
+    if (swept.signature) this.lastVaultSignature = swept.signature;
   }
 
   private async reportClose(
     reason: string,
-    pnlSol: number,
-    txHash: string,
+    remainingPnlSol: number,
     wasRug = false
   ): Promise<void> {
-    const durationSec = Math.max(0, Math.round((Date.now() - this.entryTimeMs) / 1000));
+    const pnlSol = this.realizedPnlSol + remainingPnlSol;
     const pnlPercent =
       this.baseInvestmentSol > 0 ? (pnlSol / this.baseInvestmentSol) * 100 : 0;
-    await this.telegram.notifyTradeClosed(
-      this.tokenAddress,
+    this.helios.briefAfterTrade(pnlSol, wasRug, this.tokenAddress);
+    await this.telegram.notifyExit({
+      mint: this.tokenAddress,
+      name: this.tokenMeta.name,
+      symbol: this.tokenMeta.symbol,
       reason,
       pnlSol,
       pnlPercent,
-      durationSec,
-      txHash,
-      undefined,
-      this.vault.walletBBase58(),
-      this.lastVaultedSol
-    );
-    void this.telegram.notifyHelios(this.helios.briefAfterTrade(pnlSol, wasRug, this.tokenAddress));
+      liveTrading: isLiveTrading(),
+      vaultedSol: this.lastVaultedSol,
+      vaultSignature: this.lastVaultSignature || undefined,
+    });
   }
 }

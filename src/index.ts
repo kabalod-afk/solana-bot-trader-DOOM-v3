@@ -201,25 +201,6 @@ async function bootstrap(): Promise<void> {
     );
   }
 
-  await telegram.sendText(
-    `🟢 *DOOM v3 ONLINE*\n• Modo: ${liveTrading ? 'LIVE' : 'DRY-RUN'}\n• Fuente: ${
-      watchPhantom
-        ? `Phantom Launches (${phantomColumns.join(', ')})`
-        : 'Helius creates'
-    }\n• Fases: B0 → radar 4 min → TP +${momentum.takeProfitPct}% / trailing ${momentum.trailingStopPct}%\n• Cartera A (trabajo): \`${derivedA}\`\n• Cartera B (vault): \`${walletBStr}\``
-  );
-  await telegram.notifyHelios(
-    `🧠 <b>HELIOS ONLINE</b> — asistencia activa\n` +
-      `• Candidatos: ${
-        watchPhantom
-          ? 'columna Launches de Phantom (prefiltrada)'
-          : 'creates Helius Pump/Raydium'
-      }\n` +
-      `• B0 + radar 4 min + TP/trailing siguen iguales\n` +
-      `• Memoria JSON manda sobre Jupiter/cabal API\n` +
-      `• Escribe <code>helios</code> para ver el cerebro`
-  );
-
   const processBlockZeroChain = async (event: NewPoolEvent): Promise<boolean> => {
     const token = event.tokenAddress;
 
@@ -231,11 +212,6 @@ async function bootstrap(): Promise<void> {
     const heliosSkip = helios.shouldSkipAnalysis(event.deployerAddress);
     if (heliosSkip?.skip) {
       console.log(`[HELIOS_SKIP] ${token}: ${heliosSkip.reason}`);
-      if (/blacklist|rug/i.test(heliosSkip.reason)) {
-        void telegram.notifyHelios(
-          `🧠 <b>HELIOS_SKIP</b>\n<code>${token.slice(0, 8)}…</code>\n${heliosSkip.reason}`
-        );
-      }
       return true;
     }
 
@@ -282,7 +258,6 @@ async function bootstrap(): Promise<void> {
       if (!b0Result.passed) {
         console.log(`[B0_REJECT] ${token}: ${b0Result.reason}`);
         helios.noteReject(event.deployerAddress, b0Result.reason ?? 'B0 reject');
-        void telegram.notifyBlockZeroReject(token, b0Result.reason ?? '');
         inflightTokens.delete(token);
         return true;
       }
@@ -331,17 +306,11 @@ async function bootstrap(): Promise<void> {
       const botInstanceId = scheduler.registerThread();
       activeTokensSet.add(token);
 
-      telegram.notifyAnalysisPassed(
-        botInstanceId,
-        token,
-        b0Result.initialMcUSD,
+      helios.briefAdmission(
+        event.deployerAddress,
         b0Result.initialPoolSol,
-        helios.briefAdmission(
-          event.deployerAddress,
-          b0Result.initialPoolSol,
-          b0Result.initialMcUSD,
-          token
-        )
+        b0Result.initialMcUSD,
+        token
       );
 
       const extraMentions = [
@@ -386,25 +355,37 @@ async function bootstrap(): Promise<void> {
           `[RADAR_PASS] ${token}: trigger=${obsResult.trigger} t=${obsResult.observationTimeMs}ms txs=${obsResult.txCount} entry=${entrySizeSol} (${advice.note})`
         );
       }
-      void telegram.notifyHelios(
-        helios.briefBreakout(
-          obsResult.trigger ?? 'organic_impulse',
-          obsResult.txCount,
-          obsResult.buyVolumeRatio,
-          obsResult.observationTimeMs,
-          {
-            token,
-            deployer: event.deployerAddress,
-            entrySol: entrySizeSol,
-            note: advice.note,
-          }
-        ) + `\n• Tamaño: <b>${entrySizeSol.toFixed(2)} SOL</b> (${advice.note})`
+      helios.briefBreakout(
+        obsResult.trigger ?? 'organic_impulse',
+        obsResult.txCount,
+        obsResult.buyVolumeRatio,
+        obsResult.observationTimeMs,
+        {
+          token,
+          deployer: event.deployerAddress,
+          entrySol: entrySizeSol,
+          note: advice.note,
+        }
       );
 
+      const tokenMeta = {
+        name: event.phantom?.name,
+        symbol: event.phantom?.symbol,
+      };
+      const entryMc = obsResult.currentMcUsd ?? b0Result.initialMcUSD;
+
       if (!liveTrading) {
-        await telegram.sendText(
-          `🤖 *[${botInstanceId}] DRY-RUN OK:* \`${token.slice(0, 8)}…\` pasó B0+radar (${obsResult.observationTimeMs}ms, ${obsResult.txCount} txs, buy=${(obsResult.buyVolumeRatio * 100).toFixed(0)}%). Helios pedía ${entrySizeSol} SOL. Sin compra.`
+        console.log(
+          `[DRY-RUN] ${botInstanceId} ${token}: B0+radar OK (${obsResult.observationTimeMs}ms, ${obsResult.txCount} txs). Helios pedía ${entrySizeSol} SOL. Sin compra.`
         );
+        await telegram.notifyEntry({
+          mint: token,
+          name: tokenMeta.name,
+          symbol: tokenMeta.symbol,
+          mcUsd: entryMc,
+          poolSol: b0Result.initialPoolSol,
+          live: false,
+        });
         activeTokensSet.delete(token);
         scheduler.releaseThread();
         return;
@@ -462,17 +443,18 @@ async function bootstrap(): Promise<void> {
         return;
       }
 
-      const entryPrice = entryTick.currentPriceUSD;
       const opNum = opCounter++;
-
-      telegram.notifyStart(botInstanceId, opNum, token, entrySizeSol, entryPrice);
-      void telegram.notifyBuyExecuted(
-        token,
-        obsResult.currentMcUsd ?? entryTick.mcUSD,
-        obsResult.txCount,
-        entrySizeSol,
-        buy.signature
+      console.log(
+        `[BUY] #${opNum} ${botInstanceId} ${token} ${entrySizeSol} SOL sig=${buy.signature}`
       );
+      await telegram.notifyEntry({
+        mint: token,
+        name: tokenMeta.name,
+        symbol: tokenMeta.symbol,
+        mcUsd: obsResult.currentMcUsd ?? entryTick.mcUSD,
+        poolSol: b0Result.initialPoolSol,
+        live: true,
+      });
 
       const engine = new TradeEngine(
         botInstanceId,
@@ -483,7 +465,8 @@ async function bootstrap(): Promise<void> {
         jito,
         vault,
         telegram,
-        helios
+        helios,
+        tokenMeta
       );
 
       const logMetrics = new PoolLogMetrics();
@@ -567,10 +550,21 @@ async function bootstrap(): Promise<void> {
   poolListener.start();
   phantomFeed?.start();
 
+  const wssConnected = await poolListener.waitUntilOpen(20_000);
+  if (!wssConnected) {
+    console.warn('[HELIUS_WS] Status Check: WebSocket aún no abierto (se reconecta en background).');
+  }
+  await telegram.notifyStatusCheck({
+    liveTrading,
+    wssConnected,
+    walletA: derivedA,
+    walletB: walletBStr,
+  });
+
   console.log(
     watchPhantom
-      ? '📡 Phantom Launches + WSS radar — B0 → 4 min → TP/trailing; ticks 4s.'
-      : '📡 PoolListener activo — B0 → radar 4 min (logs WSS) → TP/trailing; ticks 4s.'
+      ? '📡 Phantom Launches + WSS radar — B0 → 4 min → TP/trailing; ticks 4s. Telegram: status / entrada / salida.'
+      : '📡 PoolListener activo — B0 → radar 4 min (logs WSS) → TP/trailing; ticks 4s. Telegram: status / entrada / salida.'
   );
 }
 

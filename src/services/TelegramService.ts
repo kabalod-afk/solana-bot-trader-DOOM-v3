@@ -1,10 +1,19 @@
 import TelegramBot from 'node-telegram-bot-api';
+import {
+  EntryAlertOpts,
+  ExitAlertOpts,
+  StatusCheckOpts,
+  formatEntryAlert,
+  formatExitAlert,
+  formatStatusCheck,
+} from './telegramAlerts';
 
 export class TelegramService {
   private bot: TelegramBot;
   private isPausedFlag = false;
   private onForceCloseCallback?: () => Promise<void>;
   private onHeliosStatus?: () => string;
+  private statusCheckSent = false;
 
   constructor(
     token: string,
@@ -117,172 +126,20 @@ export class TelegramService {
     }
   }
 
-  private esc(s: string): string {
-    return s.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+  /** 1/3 — una sola vez al arrancar el proceso. */
+  public async notifyStatusCheck(opts: StatusCheckOpts): Promise<void> {
+    if (this.statusCheckSent) return;
+    this.statusCheckSent = true;
+    await this.sendHtml(formatStatusCheck(opts));
   }
 
-  private ticker(mint: string, symbol?: string): string {
-    if (symbol && symbol.trim()) return this.esc(symbol.trim());
-    return this.esc(mint.slice(0, 6));
+  /** 2/3 — compra ejecutada (o simulación DRY-RUN tras las 3 fases). */
+  public async notifyEntry(opts: EntryAlertOpts): Promise<void> {
+    await this.sendHtml(formatEntryAlert(opts));
   }
 
-  public async notifyHelios(html: string): Promise<void> {
-    await this.sendHtml(html);
-  }
-
-  /** Paso 1: B0 aprobado → radar de incubación (máx 4 min). */
-  public async notifyRadarEntry(
-    mint: string,
-    poolSol: number,
-    mcUsd: number,
-    symbol?: string,
-    heliosBrief?: string
-  ): Promise<void> {
-    const msg =
-      `📡 <b>[RADAR B0] Token Aprobado</b>\n\n` +
-      `• <b>Token:</b> $${this.ticker(mint, symbol)}\n` +
-      `• <b>Mint:</b> <code>${this.esc(mint)}</code>\n` +
-      `• <b>Pool Inicial:</b> ${poolSol.toFixed(2)} SOL\n` +
-      `• <b>MC Inicial:</b> $${mcUsd.toFixed(0)} USD\n` +
-      `• <b>Estado:</b> Radar de incubación (Máx 4 min, ≥3 txs + breakout)...` +
-      (heliosBrief ? `\n\n${heliosBrief}` : '');
-    await this.sendHtml(msg);
-  }
-
-  /** Paso 2: compra ejecutada. */
-  public async notifyBuyExecuted(
-    mint: string,
-    currentMc: number,
-    txs: number,
-    amountSol: number,
-    txHash: string,
-    symbol?: string
-  ): Promise<void> {
-    const hash = this.esc(txHash || 'pendiente');
-    const link = txHash
-      ? `<a href="https://solscan.io/tx/${hash}">Ver en Solscan</a>`
-      : 'pendiente';
-    const msg =
-      `🎯 <b>[BUY TRIGGERED] Breakout Confirmado</b>\n\n` +
-      `• <b>Token:</b> $${this.ticker(mint, symbol)}\n` +
-      `• <b>MC Actual:</b> $${currentMc.toFixed(0)} USD\n` +
-      `• <b>Confirmaciones:</b> ${txs} txs\n` +
-      `• <b>Monto Entrada:</b> ${amountSol} SOL\n` +
-      `• <b>Tx:</b> ${link}`;
-    await this.sendHtml(msg);
-  }
-
-  /** Paso 3: venta + informe PnL. */
-  public async notifyTradeClosed(
-    mint: string,
-    reason: string,
-    pnlSol: number,
-    pnlPercent: number,
-    durationSec: number,
-    txHash: string,
-    symbol?: string,
-    vaultB?: string,
-    vaultedSol?: number
-  ): Promise<void> {
-    const icon = pnlSol >= 0 ? '🟢' : '🔴';
-    const hash = this.esc(txHash || '');
-    const link = txHash
-      ? `<a href="https://solscan.io/tx/${hash}">Ver en Solscan</a>`
-      : 'n/d';
-    const vaultLine =
-      vaultB && (vaultedSol ?? 0) > 0
-        ? `\n• <b>Ruteo a Cartera B:</b> +${(vaultedSol ?? 0).toFixed(3)} SOL → <code>${this.esc(vaultB)}</code>`
-        : vaultB && pnlSol > 0
-          ? `\n• <b>Cartera B (vault):</b> <code>${this.esc(vaultB)}</code> (PnL no ruteado: dry-run o sin saldo)`
-          : vaultB
-            ? `\n• <b>Cartera B (vault):</b> <code>${this.esc(vaultB)}</code> (sin superávit)`
-            : '';
-    const msg =
-      `🏁 <b>[TRADE CLOSED] Operación Finalizada</b>\n\n` +
-      `• <b>Token:</b> $${this.ticker(mint, symbol)}\n` +
-      `• <b>Motivo Cierre:</b> ${this.esc(reason)}\n\n` +
-      `<b>📊 Informe de Operación:</b>\n` +
-      `├─ <b>Tiempo Transcurrido:</b> ${durationSec}s\n` +
-      `└─ <b>PnL Neto:</b> ${pnlSol >= 0 ? '+' : ''}${pnlSol.toFixed(3)} SOL (${pnlPercent.toFixed(1)}%) ${icon}\n\n` +
-      `• <b>Tx Venta:</b> ${link}` +
-      vaultLine;
-    await this.sendHtml(msg);
-  }
-
-  /**
-   * Silenciado: rechazos B0 no van a Telegram (solo consola/PM2).
-   * Conservamos alertas de análisis aprobado, compra y venta/PnL.
-   */
-  public async notifyBlockZeroReject(_token: string, _reason: string): Promise<void> {
-    return;
-  }
-
-  /** Alias: token superó B0 y entra a ventana dinámica. */
-  notifyAnalysisPassed(
-    _botId: string,
-    token: string,
-    mcUSD: number,
-    poolSol: number,
-    heliosBrief?: string
-  ): void {
-    void this.notifyRadarEntry(token, poolSol, mcUSD, undefined, heliosBrief);
-  }
-
-  notifyAnalysis(_botId: string, token: string, mcUSD: number, poolSol: number): void {
-    void this.notifyRadarEntry(token, poolSol, mcUSD);
-  }
-
-  notifyStart(
-    botId: string,
-    opNum: number,
-    token: string,
-    solInjected: number,
-    priceUSD: number
-  ): void {
-    void this.sendText(
-      `🤖 *[${botId}]* 🚀 *OPERACIÓN INICIADA (#${opNum})*\n• Token: \`${token}\`\n• Inversión: ${solInjected.toFixed(2)} SOL (Cartera A)\n• Precio: $${priceUSD.toFixed(8)} USD`
-    );
-  }
-
-  notifyDerisk(botId: string, solReduced: number, currentExposed: number): void {
-    void this.sendText(
-      `🤖 *[${botId}]* ⚠️ *DESESCALADA DE RIESGO*\nRetirados: -${solReduced.toFixed(2)} SOL | Expuesto: ${currentExposed.toFixed(2)} SOL`
-    );
-  }
-
-  notifyBoost(botId: string, solAdded: number, currentExposed: number): void {
-    void this.sendText(
-      `🤖 *[${botId}]* 🔥 *RE-INYECCIÓN POR RUPTURA*\nAñadidos: +${solAdded.toFixed(2)} SOL | Expuesto: ${currentExposed.toFixed(2)} SOL`
-    );
-  }
-
-  notifyTakeProfit(
-    botId: string,
-    multiplier: number,
-    amountUSD: number,
-    type: string
-  ): void {
-    void this.sendText(
-      `🤖 *[${botId}]* 💰 *TOMA DE COBERTURA (${type})*\nMultiplicador: ${multiplier.toFixed(1)}x | Cobertura Extraída: $${amountUSD} USD`
-    );
-  }
-
-  notifyStagnantExit(botId: string, token: string): void {
-    void this.sendText(
-      `🤖 *[${botId}]* 😴 *SALIDA POR ESTANCAMIENTO*\nToken \`${token}\` cerrado tras 4 min sin tendencia.`
-    );
-  }
-
-  notifySummary(
-    botId: string,
-    token: string,
-    initialSol: number,
-    pnlSol: number,
-    vaultSol: number
-  ): void {
-    const emoji = pnlSol >= 0 ? '🟢 GANANCIA' : '🔴 PÉRDIDA';
-    void this.sendText(
-      `🤖 *[${botId}]* ✅ *RESUMEN DE OPERACIÓN*\n• Token: \`${token}\`\n• Inversión Inicial: ${initialSol.toFixed(2)} SOL\n• PnL Net: ${emoji} ${pnlSol > 0 ? '+' : ''}${pnlSol.toFixed(2)} SOL\n• Ruteo a Cartera B (Vault): ${vaultSol.toFixed(2)} SOL`
-    );
+  /** 3/3 — venta + PnL + ruteo a bóveda. */
+  public async notifyExit(opts: ExitAlertOpts): Promise<void> {
+    await this.sendHtml(formatExitAlert(opts));
   }
 }
