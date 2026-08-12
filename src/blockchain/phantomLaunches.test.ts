@@ -7,6 +7,8 @@ import {
   parseLaunchColumns,
   parseLaunchToken,
   tokensForColumns,
+  TOKEN_2022_PROGRAM_ID,
+  TOKEN_PROGRAM_ID,
   PhantomLaunchToken,
 } from './phantomLaunches';
 import { phantomMetricsSkipReason } from '../core/HeliosEngine';
@@ -57,9 +59,25 @@ describe('parseLaunchToken + mapLaunchToPoolEvent', () => {
     assert.equal(event.phantom.column, 'new');
     assert.equal(
       event.associatedBondingCurve,
-      associatedBondingCurvePda(parsed.bondingCurve, parsed.tokenAddress)
+      associatedBondingCurvePda(
+        parsed.bondingCurve,
+        parsed.tokenAddress,
+        TOKEN_2022_PROGRAM_ID
+      )
     );
     new PublicKey(event.associatedBondingCurve!);
+    assert.notEqual(
+      associatedBondingCurvePda(parsed.bondingCurve, parsed.tokenAddress, TOKEN_2022_PROGRAM_ID),
+      associatedBondingCurvePda(parsed.bondingCurve, parsed.tokenAddress, TOKEN_PROGRAM_ID)
+    );
+  });
+
+  it('ignores unsupported launchpads like Meteora DBC', () => {
+    const parsed = parseLaunchToken(
+      sampleToken({ bondingCurvePlatform: 'Meteora DBC' })
+    );
+    assert.ok(parsed);
+    assert.equal(mapLaunchToPoolEvent(parsed, 'new'), null);
   });
 
   it('maps migrated tokens to Raydium pool', () => {

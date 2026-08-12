@@ -220,13 +220,13 @@ async function bootstrap(): Promise<void> {
       `• Escribe <code>helios</code> para ver el cerebro`
   );
 
-  const processBlockZeroChain = async (event: NewPoolEvent): Promise<void> => {
+  const processBlockZeroChain = async (event: NewPoolEvent): Promise<boolean> => {
     const token = event.tokenAddress;
 
-    if (!event.poolAddress || !event.tokenAddress) return;
-    if (telegram.isPaused()) return;
-    if (activeTokensSet.has(token) || inflightTokens.has(token)) return;
-    if (!scheduler.canSpawnThread()) return;
+    if (!event.poolAddress || !event.tokenAddress) return true;
+    if (telegram.isPaused()) return false;
+    if (activeTokensSet.has(token) || inflightTokens.has(token)) return false;
+    if (!scheduler.canSpawnThread()) return false;
 
     const heliosSkip = helios.shouldSkipAnalysis(event.deployerAddress);
     if (heliosSkip?.skip) {
@@ -236,7 +236,7 @@ async function bootstrap(): Promise<void> {
           `🧠 <b>HELIOS_SKIP</b>\n<code>${token.slice(0, 8)}…</code>\n${heliosSkip.reason}`
         );
       }
-      return;
+      return true;
     }
 
     helios.noteSeen(event.deployerAddress);
@@ -250,7 +250,7 @@ async function bootstrap(): Promise<void> {
       });
       if (phantomSkip?.skip) {
         console.log(`[HELIOS_SKIP] ${token}: ${phantomSkip.reason}`);
-        return;
+        return true;
       }
     }
 
@@ -275,19 +275,24 @@ async function bootstrap(): Promise<void> {
         event.deployerAddress = b0Result.resolvedDeployer;
         helios.noteSeen(event.deployerAddress);
       }
+      if (b0Result.resolvedAssociatedBondingCurve) {
+        event.associatedBondingCurve = b0Result.resolvedAssociatedBondingCurve;
+      }
 
       if (!b0Result.passed) {
         console.log(`[B0_REJECT] ${token}: ${b0Result.reason}`);
         helios.noteReject(event.deployerAddress, b0Result.reason ?? 'B0 reject');
         void telegram.notifyBlockZeroReject(token, b0Result.reason ?? '');
         inflightTokens.delete(token);
-        return;
+        return true;
       }
 
       void continueAfterBlockZero(event, b0Result);
+      return true;
     } catch (err) {
       console.error(`[B0_CHAIN_ERROR] ${token}:`, err);
       inflightTokens.delete(token);
+      return true;
     }
   };
 

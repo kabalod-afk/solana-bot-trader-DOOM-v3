@@ -7,6 +7,9 @@ export const PHANTOM_MEME_EXPLORE_URL =
 export const TOKEN_PROGRAM_ID = new PublicKey(
   'TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA'
 );
+export const TOKEN_2022_PROGRAM_ID = new PublicKey(
+  'TokenzQdBNbLqP5VEhdkAS6EPFLC1PHnBqCXEpPxuEb'
+);
 export const ASSOCIATED_TOKEN_PROGRAM_ID = new PublicKey(
   'ATokenGPvbdGVxr1b2hvZbsiqW5xWH25efTNsLJA8knL'
 );
@@ -77,16 +80,27 @@ const EMPTY_FILTER: PhantomExploreFilters = {
 
 export function associatedBondingCurvePda(
   bondingCurve: string,
-  mint: string
+  mint: string,
+  tokenProgram: PublicKey = TOKEN_2022_PROGRAM_ID
 ): string {
   return PublicKey.findProgramAddressSync(
     [
       new PublicKey(bondingCurve).toBuffer(),
-      TOKEN_PROGRAM_ID.toBuffer(),
+      tokenProgram.toBuffer(),
       new PublicKey(mint).toBuffer(),
     ],
     ASSOCIATED_TOKEN_PROGRAM_ID
   )[0].toBase58();
+}
+
+/** Pump 2026 usa Token-2022; tokens viejos siguen en Tokenkeg. B0 prueba ambos. */
+export function associatedBondingCurveCandidates(
+  bondingCurve: string,
+  mint: string
+): string[] {
+  const t22 = associatedBondingCurvePda(bondingCurve, mint, TOKEN_2022_PROGRAM_ID);
+  const spl = associatedBondingCurvePda(bondingCurve, mint, TOKEN_PROGRAM_ID);
+  return t22 === spl ? [t22] : [t22, spl];
 }
 
 export function parseLaunchColumns(raw: string | undefined): PhantomLaunchColumn[] {
@@ -203,15 +217,16 @@ export function mapLaunchToPoolEvent(
     };
   }
 
-  if (!isPumpishPlatform(token.bondingCurvePlatform) && !isRaydiumishPlatform(token.bondingCurvePlatform)) {
-    // Otras launchpads: tratamos la bonding curve como pool Pump-like (balance SOL nativo).
+  if (!isPumpishPlatform(token.bondingCurvePlatform)) {
+    return null;
   }
 
   let associatedBondingCurve: string | undefined;
   try {
     associatedBondingCurve = associatedBondingCurvePda(
       token.bondingCurve,
-      token.tokenAddress
+      token.tokenAddress,
+      TOKEN_2022_PROGRAM_ID
     );
   } catch {
     return null;

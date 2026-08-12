@@ -3,6 +3,10 @@ import { HeliosEngine } from '../core/HeliosEngine';
 import { loadMomentumConfig } from '../core/momentumConfig';
 import { getCachedSolPrice } from '../core/solPriceCache';
 import { jupiterConfig } from '../core/jupiter';
+import {
+  associatedBondingCurveCandidates,
+  associatedBondingCurvePda,
+} from './phantomLaunches';
 
 export interface BlockZeroResult {
   passed: boolean;
@@ -11,6 +15,7 @@ export interface BlockZeroResult {
   initialPoolSol: number;
   totalSupply?: number;
   resolvedDeployer?: string;
+  resolvedAssociatedBondingCurve?: string;
 }
 
 export interface AuditTokenOpts {
@@ -260,6 +265,10 @@ export class BlockZeroScanner {
       initialPoolSol: poolMetrics.solAmount,
       totalSupply: poolMetrics.totalSupply,
       resolvedDeployer: deployerAddress || undefined,
+      resolvedAssociatedBondingCurve:
+        'associatedBondingCurve' in poolMetrics
+          ? (poolMetrics as { associatedBondingCurve?: string }).associatedBondingCurve
+          : opts?.associatedBondingCurve,
     };
   }
 
@@ -288,12 +297,18 @@ export class BlockZeroScanner {
       return 0;
     }
 
-    // Pump / fallback: lamports nativos en bonding curve / pool
-    const lamports = await this.connection.getBalance(pool).catch(() => 0);
-    return lamports / 1e9;
+    // Pump / fallback: lamports nativos; si hay layout de bonding curve, usa real_sol_reserves.
+    const info = await this.connection.getAccountInfo(pool).catch(() => null);
+    if (!info) return 0;
+    const lamportsSol = info.lamports / 1e9;
+    if (opts?.source === 'pump' && info.data.length >= 40) {
+      const realSol = Number(info.data.readBigUInt64LE(32)) / 1e9;
+      if (Number.isFinite(realSol) && realSol > 0) return realSol;
+    }
+    return lamportsSol;
   }
 
-  /** Pump: reusa SOL del quick check; 1 getMultipleAccounts (mint + ABC). */
+  /** Pump: 1 getMultipleAccounts (mint + curve + ATA Token-2022 y SPL). */
   private async fetchPumpBondingMetrics(
     _bondingCurve: PublicKey,
     mint: PublicKey,
@@ -304,16 +319,29 @@ export class BlockZeroScanner {
     let tokenAmount = 0;
     let totalSupply = PUMP_SUPPLY;
     let mintSafe: boolean | undefined;
+    let creatorFromCurve: string | undefined;
+    let resolvedAbc: string | undefined;
 
-    const keys: PublicKey[] = [mint, _bondingCurve];
-    if (associatedBondingCurve) {
-      keys.push(new PublicKey(associatedBondingCurve));
+    const curveStr = _bondingCurve.toBase58();
+    const mintStr = mint.toBase58();
+    const ataCandidates = associatedBondingCurveCandidates(curveStr, mintStr);
+    if (
+      associatedBondingCurve &&
+      !ataCandidates.includes(associatedBondingCurve)
+    ) {
+      ataCandidates.unshift(associatedBondingCurve);
     }
 
-    let creatorFromCurve: string | undefined;
+    const keys: PublicKey[] = [
+      mint,
+      _bondingCurve,
+      ...ataCandidates.map((a) => new PublicKey(a)),
+    ];
+
     try {
       const accs = await this.connection.getMultipleAccountsInfo(keys);
       const mintData = accs[0]?.data;
+      const mintOwner = accs[0]?.owner;
       if (mintData && mintData.length >= 82) {
         mintSafe =
           mintData.readUInt32LE(0) === 0 && mintData.readUInt32LE(46) === 0;
@@ -322,6 +350,14 @@ export class BlockZeroScanner {
         const ui = Number(rawSupply) / 10 ** decimals;
         if (ui > 0) totalSupply = ui;
       }
+      if (mintOwner) {
+        try {
+          resolvedAbc = associatedBondingCurvePda(curveStr, mintStr, mintOwner);
+        } catch {
+          resolvedAbc = ataCandidates[0];
+        }
+      }
+
       const bcData = accs[1]?.data;
       if (bcData && bcData.length >= 81) {
         try {
@@ -330,11 +366,22 @@ export class BlockZeroScanner {
           creatorFromCurve = undefined;
         }
       }
-      const abc = associatedBondingCurve ? accs[2] : undefined;
-      if (abc && abc.data.length >= 72) {
-        const raw = abc.data.readBigUInt64LE(64);
-        const decimals = mintData && mintData.length >= 45 ? mintData[44] : 6;
-        tokenAmount = Number(raw) / 10 ** decimals;
+      if (bcData && bcData.length >= 40) {
+        const realSol = Number(bcData.readBigUInt64LE(32)) / 1e9;
+        if (Number.isFinite(realSol) && realSol > knownSol) {
+          knownSol = realSol;
+        }
+      }
+
+      const decimals = mintData && mintData.length >= 45 ? mintData[44] : 6;
+      for (let i = 2; i < accs.length; i++) {
+        const abc = accs[i];
+        if (abc && abc.data.length >= 72) {
+          const raw = abc.data.readBigUInt64LE(64);
+          tokenAmount = Number(raw) / 10 ** decimals;
+          resolvedAbc = ataCandidates[i - 2] ?? resolvedAbc;
+          if (tokenAmount > 0) break;
+        }
       }
     } catch {
       /* keep defaults */
@@ -350,6 +397,7 @@ export class BlockZeroScanner {
       totalSupply: totalSupply > 0 ? totalSupply : Math.max(tokenAmount, 1),
       mintSafe,
       creatorFromCurve,
+      associatedBondingCurve: resolvedAbc,
     };
   }
 

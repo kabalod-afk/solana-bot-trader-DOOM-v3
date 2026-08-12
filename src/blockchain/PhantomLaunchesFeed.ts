@@ -10,7 +10,7 @@ import {
 } from './phantomLaunches';
 
 export interface PhantomLaunchesFeedOpts {
-  onToken: (event: PhantomLaunchPoolEvent) => void | Promise<void>;
+  onToken: (event: PhantomLaunchPoolEvent) => void | boolean | Promise<void | boolean>;
   columns?: PhantomLaunchColumn[];
   pollMs?: number;
   /** Si false, el primer snapshot solo se memoriza (no dispara B0 sobre el tablero ya visible). */
@@ -77,10 +77,16 @@ export class PhantomLaunchesFeed {
 
       for (const { token, column } of rows) {
         if (this.seen.has(token.tokenAddress)) continue;
-        this.remember(token.tokenAddress);
-        if (!this.primed && !this.seedExisting) continue;
+        if (!this.primed && !this.seedExisting) {
+          this.remember(token.tokenAddress);
+          continue;
+        }
         const event = mapLaunchToPoolEvent(token, column);
-        if (event) fresh.push(event);
+        if (!event) {
+          this.remember(token.tokenAddress);
+          continue;
+        }
+        fresh.push(event);
       }
 
       if (!this.primed) {
@@ -98,7 +104,8 @@ export class PhantomLaunchesFeed {
             `mc=$${event.phantom.marketCap.toFixed(0)} holders=${event.phantom.uniqueHolders} ` +
             `bundlers=${event.phantom.bundlersHolding.toFixed(0)}% ${event.tokenAddress}`
         );
-        await this.opts.onToken(event);
+        const consumed = await this.opts.onToken(event);
+        if (consumed !== false) this.remember(event.tokenAddress);
       }
     } catch (err) {
       console.error(

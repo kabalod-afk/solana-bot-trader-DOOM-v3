@@ -13,7 +13,7 @@ Por defecto `CANDIDATE_SOURCE=phantom_launches`: se lee la columna **Launches** 
 
 ## Paso 1 — Filtro B0 (admisión inmediata)
 
-Al detectar el create en Helius/Pump:
+Al detectar un candidato (Phantom Launches o create Helius/Pump):
 
 - `HELIOS_SKIP` si el JSON de Helios marca farming, bundling o granja de bots (serial deploys, rejects, blacklist).
 - Liquidez de nacimiento ≥ **2.0 SOL**. Si no: `B0_REJECT: Pool insuficiente`.

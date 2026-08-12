@@ -231,7 +231,7 @@ export class PoolListener {
   constructor(
     wssUrl: string,
     private connection: Connection,
-    private onNewPoolCallback: (event: NewPoolEvent) => void | Promise<void>,
+    private onNewPoolCallback: (event: NewPoolEvent) => void | boolean | Promise<void | boolean>,
     private tryAcquireRpc?: () => boolean,
     private releaseRpc?: () => void,
     watchCreates = true
