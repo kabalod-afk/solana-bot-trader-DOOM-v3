@@ -15,6 +15,10 @@ export interface HeliosLearnedWeights {
   /** Ventana rolling para contar serial deploys (horas). Default 24h — pumps 24–96h. */
   serial_window_hours: number;
   skip_after_rejects: number;
+  /** % bundlers en Phantom Launches por encima del cual se salta (granja). */
+  max_bundlers_holding_pct: number;
+  max_snipers_holding_pct: number;
+  max_dev_holding_pct: number;
 }
 
 export interface TokenMemory {
@@ -90,11 +94,33 @@ const DEFAULT_WEIGHTS: HeliosLearnedWeights = {
   serial_deploys_per_2h: 40,
   serial_window_hours: 24,
   skip_after_rejects: 10,
+  max_bundlers_holding_pct: 40,
+  max_snipers_holding_pct: 55,
+  max_dev_holding_pct: 25,
 };
 
 const MAX_DEPLOYERS = 500;
 const MAX_TOKENS = 400;
 const MAX_ASSIST_LOG = 80;
+
+export function phantomMetricsSkipReason(
+  metrics: { bundlersHolding: number; snipersHolding: number; devHolding: number },
+  weights: Pick<
+    HeliosLearnedWeights,
+    'max_bundlers_holding_pct' | 'max_snipers_holding_pct' | 'max_dev_holding_pct'
+  >
+): string | null {
+  if (metrics.bundlersHolding >= weights.max_bundlers_holding_pct) {
+    return `HELIOS_SKIP: Phantom bundlers ${metrics.bundlersHolding.toFixed(0)}% ≥ ${weights.max_bundlers_holding_pct}%`;
+  }
+  if (metrics.snipersHolding >= weights.max_snipers_holding_pct) {
+    return `HELIOS_SKIP: Phantom snipers ${metrics.snipersHolding.toFixed(0)}% ≥ ${weights.max_snipers_holding_pct}%`;
+  }
+  if (metrics.devHolding >= weights.max_dev_holding_pct) {
+    return `HELIOS_SKIP: Phantom dev holding ${metrics.devHolding.toFixed(0)}% ≥ ${weights.max_dev_holding_pct}%`;
+  }
+  return null;
+}
 
 export class HeliosEngine {
   private filePath: string;
@@ -169,7 +195,8 @@ export class HeliosEngine {
    */
   public apiGate(
     deployer: string,
-    token: string
+    token: string,
+    phantomClean?: boolean
   ): {
     needCabalRpc: boolean;
     needJupiter: boolean;
@@ -196,15 +223,16 @@ export class HeliosEngine {
     }
 
     const depMem = this.brain.analysis_memory.deployers[deployer];
-    const needCabal = !depMem || depMem.cabalClean !== true;
+    const needCabal =
+      phantomClean === true ? false : !depMem || depMem.cabalClean !== true;
     const needJupiter = tokenMem?.jupiterOk !== true;
 
     if (!depMem && !tokenMem) {
       return {
-        needCabalRpc: true,
-        needJupiter: true,
+        needCabalRpc: needCabal,
+        needJupiter,
         rejectFromJson: null,
-        trust: 'sin memoria JSON — API',
+        trust: phantomClean ? 'phantom' : 'sin memoria JSON — API',
       };
     }
 
@@ -430,6 +458,27 @@ export class HeliosEngine {
     }
     if (!reason) return null;
     this.logAssistance({ kind: 'skip', verdict: 'SKIP', note: reason, deployer });
+    return { skip: true, reason };
+  }
+
+  /**
+   * Usa las métricas que Phantom ya calculó (bundlers/snipers/dev) para no gastar
+   * cabal RPC ni Jupiter en granjas obvias.
+   */
+  public shouldSkipPhantomMetrics(metrics: {
+    bundlersHolding: number;
+    snipersHolding: number;
+    devHolding: number;
+    token?: string;
+  }): { skip: boolean; reason: string } | null {
+    const reason = phantomMetricsSkipReason(metrics, this.weights());
+    if (!reason) return null;
+    this.logAssistance({
+      kind: 'skip',
+      verdict: 'SKIP',
+      note: reason,
+      token: metrics.token,
+    });
     return { skip: true, reason };
   }
 

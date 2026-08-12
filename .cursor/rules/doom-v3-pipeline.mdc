@@ -7,6 +7,10 @@ alwaysApply: true
 
 No usar la ventana de observación de 45s de v2. El flujo es:
 
+## Fuente de candidatos — Phantom Launches (no el firehose)
+
+Por defecto `CANDIDATE_SOURCE=phantom_launches`: se lee la columna **Launches** de Phantom Terminal (`New` / opcional `Migrating` / `Migrated`) vía `POST /sniper/v1/memeExplore`. Eso sustituye el `logsSubscribe` de cada create Pump/Raydium (miles/min). El WSS de Helius queda **solo para el radar** (logs del pool). Fallback: `helius_creates` o `both`.
+
 ## Paso 1 — Filtro B0 (admisión inmediata)
 
 Al detectar el create en Helius/Pump:

@@ -11,7 +11,10 @@
     "min_unique_wallets": 3,
     "serial_deploys_per_2h": 40,
     "serial_window_hours": 24,
-    "skip_after_rejects": 10
+    "skip_after_rejects": 10,
+    "max_bundlers_holding_pct": 40,
+    "max_snipers_holding_pct": 55,
+    "max_dev_holding_pct": 25
   },
   "cabal_patterns": {
     "blacklisted_funding_wallets": [],

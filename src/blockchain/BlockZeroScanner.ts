@@ -10,6 +10,7 @@ export interface BlockZeroResult {
   initialMcUSD: number;
   initialPoolSol: number;
   totalSupply?: number;
+  resolvedDeployer?: string;
 }
 
 export interface AuditTokenOpts {
@@ -18,6 +19,7 @@ export interface AuditTokenOpts {
   coinVault?: string;
   pcVault?: string;
   associatedBondingCurve?: string;
+  phantomClean?: boolean;
 }
 
 const INCINERATOR = '1nc1nerator11111111111111111111111111111111';
@@ -49,18 +51,25 @@ export class BlockZeroScanner {
 
     let mint: PublicKey;
     let pool: PublicKey;
-    let deployer: PublicKey;
     try {
       mint = new PublicKey(tokenAddress);
       pool = new PublicKey(poolAddress);
-      deployer = new PublicKey(deployerAddress);
     } catch {
       return {
         passed: false,
-        reason: 'Dirección token/pool/deployer inválida',
+        reason: 'Dirección token/pool inválida',
         initialMcUSD: 0,
         initialPoolSol: 0,
       };
+    }
+
+    let deployer: PublicKey | null = null;
+    if (deployerAddress) {
+      try {
+        deployer = new PublicKey(deployerAddress);
+      } catch {
+        deployer = null;
+      }
     }
 
     const momentum = loadMomentumConfig(
@@ -91,6 +100,29 @@ export class BlockZeroScanner {
         : opts?.source === 'raydium' && opts.coinVault && opts.pcVault
           ? await this.fetchRaydiumVaultMetrics(opts.coinVault, opts.pcVault, mint, quickSol)
           : await this.fetchPoolMetricsFallback(pool, mint);
+
+    const creatorFromCurve =
+      'creatorFromCurve' in poolMetrics
+        ? (poolMetrics as { creatorFromCurve?: string }).creatorFromCurve
+        : undefined;
+    if (!deployer && creatorFromCurve) {
+      try {
+        deployer = new PublicKey(creatorFromCurve);
+        deployerAddress = creatorFromCurve;
+        const lateSkip = this.helios.shouldSkipAnalysis(deployerAddress);
+        if (lateSkip?.skip) {
+          return {
+            passed: false,
+            reason: lateSkip.reason,
+            initialMcUSD: 0,
+            initialPoolSol: poolMetrics.solAmount,
+            resolvedDeployer: deployerAddress,
+          };
+        }
+      } catch {
+        /* keep empty deployer */
+      }
+    }
 
     // Revalidar SOL con lectura completa (puede diferir del quick check)
     if (poolMetrics.solAmount < minPoolRequired) {
@@ -170,7 +202,11 @@ export class BlockZeroScanner {
       };
     }
 
-    const gate = this.helios.apiGate(deployerAddress, tokenAddress);
+    const gate = this.helios.apiGate(
+      deployerAddress,
+      tokenAddress,
+      opts?.phantomClean === true
+    );
     if (gate.rejectFromJson) {
       console.log(`[HELIOS_JSON] ${deployerAddress.slice(0, 8)}… ${gate.rejectFromJson}`);
       return {
@@ -182,18 +218,25 @@ export class BlockZeroScanner {
     }
 
     if (gate.needCabalRpc) {
-      const isCabal = await this.traceCabalFundingOnChain(deployer);
-      this.helios.noteCabalResult(deployerAddress, isCabal);
-      if (isCabal) {
-        return {
-          passed: false,
-          reason: 'Cluster de Cabal/Bundling detectado',
-          initialMcUSD,
-          initialPoolSol: poolMetrics.solAmount,
-        };
+      if (!deployer) {
+        console.log('[HELIOS_JSON] cabal skip API — deployer desconocido');
+      } else {
+        const isCabal = await this.traceCabalFundingOnChain(deployer);
+        this.helios.noteCabalResult(deployerAddress, isCabal);
+        if (isCabal) {
+          return {
+            passed: false,
+            reason: 'Cluster de Cabal/Bundling detectado',
+            initialMcUSD,
+            initialPoolSol: poolMetrics.solAmount,
+            resolvedDeployer: deployerAddress || undefined,
+          };
+        }
       }
     } else {
-      console.log(`[HELIOS_JSON] cabal skip API — memoria limpia ${deployerAddress.slice(0, 8)}…`);
+      console.log(
+        `[HELIOS_JSON] cabal skip API — ${opts?.phantomClean ? 'Phantom limpio' : 'memoria JSON'} ${deployerAddress.slice(0, 8) || 'n/a'}…`
+      );
     }
 
     if (gate.needJupiter) {
@@ -216,6 +259,7 @@ export class BlockZeroScanner {
       initialMcUSD,
       initialPoolSol: poolMetrics.solAmount,
       totalSupply: poolMetrics.totalSupply,
+      resolvedDeployer: deployerAddress || undefined,
     };
   }
 
@@ -261,11 +305,12 @@ export class BlockZeroScanner {
     let totalSupply = PUMP_SUPPLY;
     let mintSafe: boolean | undefined;
 
-    const keys: PublicKey[] = [mint];
+    const keys: PublicKey[] = [mint, _bondingCurve];
     if (associatedBondingCurve) {
       keys.push(new PublicKey(associatedBondingCurve));
     }
 
+    let creatorFromCurve: string | undefined;
     try {
       const accs = await this.connection.getMultipleAccountsInfo(keys);
       const mintData = accs[0]?.data;
@@ -277,7 +322,15 @@ export class BlockZeroScanner {
         const ui = Number(rawSupply) / 10 ** decimals;
         if (ui > 0) totalSupply = ui;
       }
-      const abc = accs[1];
+      const bcData = accs[1]?.data;
+      if (bcData && bcData.length >= 81) {
+        try {
+          creatorFromCurve = new PublicKey(bcData.subarray(49, 81)).toBase58();
+        } catch {
+          creatorFromCurve = undefined;
+        }
+      }
+      const abc = associatedBondingCurve ? accs[2] : undefined;
       if (abc && abc.data.length >= 72) {
         const raw = abc.data.readBigUInt64LE(64);
         const decimals = mintData && mintData.length >= 45 ? mintData[44] : 6;
@@ -296,6 +349,7 @@ export class BlockZeroScanner {
       tokenAmount,
       totalSupply: totalSupply > 0 ? totalSupply : Math.max(tokenAmount, 1),
       mintSafe,
+      creatorFromCurve,
     };
   }
 

@@ -16,6 +16,8 @@ import {
   redactWssUrl,
   normalizeHeliusWssUrl,
 } from './blockchain/PoolListener';
+import { PhantomLaunchesFeed } from './blockchain/PhantomLaunchesFeed';
+import { parseLaunchColumns } from './blockchain/phantomLaunches';
 import { fetchRealPoolTick, rememberPoolSupply, PoolTickOpts } from './blockchain/poolTick';
 import { PoolLogMetrics, poolLogMentions } from './blockchain/poolLogMetrics';
 import { loadWalletA } from './core/loadWalletA';
@@ -151,8 +153,20 @@ async function bootstrap(): Promise<void> {
   });
 
   const momentum = loadMomentumConfig(helios.brain.learned_weights.min_pool_sol_threshold);
+  const candidateSource = (process.env.CANDIDATE_SOURCE || 'phantom_launches').toLowerCase();
+  const watchPhantom =
+    candidateSource === 'phantom_launches' || candidateSource === 'both';
+  const watchCreates =
+    candidateSource === 'helius_creates' || candidateSource === 'both';
+  const phantomColumns = parseLaunchColumns(process.env.PHANTOM_LAUNCH_COLUMNS);
+  const phantomPollMs = Number(process.env.PHANTOM_LAUNCH_POLL_MS || 4000);
+  const phantomSeedExisting = process.env.PHANTOM_SEED_EXISTING === 'true';
+
   console.log(
     `Helios ${helios.brain.version} | JSON-first=${helios.jsonOverApi()} | LIVE_TRADING=${liveTrading} | SOL≈$${solPriceUSD}`
+  );
+  console.log(
+    `Fuente: ${candidateSource}${watchPhantom ? ` (Phantom ${phantomColumns.join(',')})` : ''}${watchCreates ? ' + Helius creates' : ''}`
   );
   console.log(
     `B0: pool≥${momentum.minPoolSol} SOL | MC $${momentum.minMcUSD}-$${momentum.maxMcUSD}`
@@ -181,17 +195,28 @@ async function bootstrap(): Promise<void> {
   });
   if (!liveTrading) {
     console.log(
-      '🧪 DRY-RUN: Helius → B0 (≥2 SOL, MC $400–$250k) → radar 4 min; sin compras.'
+      watchPhantom
+        ? '🧪 DRY-RUN: Phantom Launches → B0 → radar 4 min; sin compras. Sin firehose de creates Helius.'
+        : '🧪 DRY-RUN: Helius → B0 (≥2 SOL, MC $400–$250k) → radar 4 min; sin compras.'
     );
   }
 
   await telegram.sendText(
-    `🟢 *DOOM v3 ONLINE*\n• Modo: ${liveTrading ? 'LIVE' : 'DRY-RUN'}\n• Fases: B0 → radar 4 min → TP +${momentum.takeProfitPct}% / trailing ${momentum.trailingStopPct}%\n• Cartera A (trabajo): \`${derivedA}\`\n• Cartera B (vault): \`${walletBStr}\``
+    `🟢 *DOOM v3 ONLINE*\n• Modo: ${liveTrading ? 'LIVE' : 'DRY-RUN'}\n• Fuente: ${
+      watchPhantom
+        ? `Phantom Launches (${phantomColumns.join(', ')})`
+        : 'Helius creates'
+    }\n• Fases: B0 → radar 4 min → TP +${momentum.takeProfitPct}% / trailing ${momentum.trailingStopPct}%\n• Cartera A (trabajo): \`${derivedA}\`\n• Cartera B (vault): \`${walletBStr}\``
   );
   await telegram.notifyHelios(
     `🧠 <b>HELIOS ONLINE</b> — asistencia activa\n` +
-      `• Memoria JSON manda sobre Jupiter/cabal API (solo huecos sin aprender)\n` +
-      `• Briefing en B0, breakout y cierre\n` +
+      `• Candidatos: ${
+        watchPhantom
+          ? 'columna Launches de Phantom (prefiltrada)'
+          : 'creates Helius Pump/Raydium'
+      }\n` +
+      `• B0 + radar 4 min + TP/trailing siguen iguales\n` +
+      `• Memoria JSON manda sobre Jupiter/cabal API\n` +
       `• Escribe <code>helios</code> para ver el cerebro`
   );
 
@@ -216,6 +241,19 @@ async function bootstrap(): Promise<void> {
 
     helios.noteSeen(event.deployerAddress);
 
+    if (event.phantom) {
+      const phantomSkip = helios.shouldSkipPhantomMetrics({
+        bundlersHolding: event.phantom.bundlersHolding,
+        snipersHolding: event.phantom.snipersHolding,
+        devHolding: event.phantom.devHolding,
+        token,
+      });
+      if (phantomSkip?.skip) {
+        console.log(`[HELIOS_SKIP] ${token}: ${phantomSkip.reason}`);
+        return;
+      }
+    }
+
     inflightTokens.add(token);
 
     try {
@@ -229,8 +267,14 @@ async function bootstrap(): Promise<void> {
           coinVault: event.coinVault,
           pcVault: event.pcVault,
           associatedBondingCurve: event.associatedBondingCurve,
+          phantomClean: !!event.phantom,
         }
       );
+
+      if (b0Result.resolvedDeployer && !event.deployerAddress) {
+        event.deployerAddress = b0Result.resolvedDeployer;
+        helios.noteSeen(event.deployerAddress);
+      }
 
       if (!b0Result.passed) {
         console.log(`[B0_REJECT] ${token}: ${b0Result.reason}`);
@@ -252,9 +296,20 @@ async function bootstrap(): Promise<void> {
     connection,
     (event: NewPoolEvent) => processBlockZeroChain(event),
     () => scheduler.tryAcquireInflight(),
-    () => scheduler.releaseInflight()
+    () => scheduler.releaseInflight(),
+    watchCreates
   );
   observer.bindListener(poolListener);
+
+  let phantomFeed: PhantomLaunchesFeed | null = null;
+  if (watchPhantom) {
+    phantomFeed = new PhantomLaunchesFeed({
+      onToken: (event) => processBlockZeroChain(event),
+      columns: phantomColumns,
+      pollMs: Number.isFinite(phantomPollMs) ? phantomPollMs : 4_000,
+      seedExisting: phantomSeedExisting,
+    });
+  }
 
   const continueAfterBlockZero = async (
     event: NewPoolEvent,
@@ -505,9 +560,12 @@ async function bootstrap(): Promise<void> {
   };
 
   poolListener.start();
+  phantomFeed?.start();
 
   console.log(
-    '📡 PoolListener activo — B0 → radar 4 min (logs WSS) → TP/trailing; ticks 4s.'
+    watchPhantom
+      ? '📡 Phantom Launches + WSS radar — B0 → 4 min → TP/trailing; ticks 4s.'
+      : '📡 PoolListener activo — B0 → radar 4 min (logs WSS) → TP/trailing; ticks 4s.'
   );
 }
 

@@ -14,6 +14,25 @@ export const PUMP_FUN_PROGRAM = '6EF8rrecthR5Dkzon8Nwu78hRvfCKubJ14M5uBEwF6P';
 const WSOL_MINT = 'So11111111111111111111111111111111111111112';
 const PUMP_FEE_RECIPIENT = '4wTV1YmiEkRvAtNtsSGPtUrqRYQMe5SKy2uB4Jjaxnjf';
 
+export interface PhantomLaunchHint {
+  column: 'new' | 'migrating' | 'migrated';
+  name: string;
+  symbol: string;
+  platform: string;
+  marketCap: number;
+  liquidity: number;
+  uniqueHolders: number;
+  bundlersHolding: number;
+  snipersHolding: number;
+  devHolding: number;
+  top10Holding: number;
+  buysCount: number;
+  sellsCount: number;
+  volume: number;
+  bondingCurvePercentage: number;
+  createdAtMs: number;
+}
+
 export interface NewPoolEvent {
   tokenAddress: string;
   poolAddress: string;
@@ -25,6 +44,8 @@ export interface NewPoolEvent {
   signature: string;
   timestamp: number;
   source: 'raydium' | 'pump';
+  /** Presente si el candidato vino de Phantom Terminal → Launches (no del firehose Helius). */
+  phantom?: PhantomLaunchHint;
 }
 
 export type PoolLogHandler = (logs: string[], signature: string) => void;
@@ -181,7 +202,7 @@ export function buildWssEndpointList(primary: string): string[] {
 
 /**
  * Un solo WSS Helius:
- *  - logsSubscribe Raydium/Pump → creates
+ *  - logsSubscribe Raydium/Pump → creates (opcional; off si la fuente es Phantom Launches)
  *  - logsSubscribe por pool/mint durante el radar de incubación (máx 4 min)
  */
 export class PoolListener {
@@ -196,6 +217,7 @@ export class PoolListener {
   private lastErrorWas522 = false;
   private endpointIndex = 0;
   private readonly endpoints: string[];
+  private readonly watchCreates: boolean;
 
   private programSubIds = new Set<number>();
   private pendingProgramReqs = new Set<number>();
@@ -211,9 +233,11 @@ export class PoolListener {
     private connection: Connection,
     private onNewPoolCallback: (event: NewPoolEvent) => void | Promise<void>,
     private tryAcquireRpc?: () => boolean,
-    private releaseRpc?: () => void
+    private releaseRpc?: () => void,
+    watchCreates = true
   ) {
     this.endpoints = buildWssEndpointList(normalizeHeliusWssUrl(wssUrl));
+    this.watchCreates = watchCreates;
   }
 
   private currentUrl(): string {
@@ -250,9 +274,11 @@ export class PoolListener {
       this.reconnectAttempt = 0;
       this.lastErrorWas522 = false;
       console.log(
-        `📡 [HELIUS_WS] Conectado (${redactWssUrl(url)}) — creates + logs de ventana.`
+        `📡 [HELIUS_WS] Conectado (${redactWssUrl(url)}) — ${
+          this.watchCreates ? 'creates + logs radar' : 'solo logs radar (sin firehose de creates)'
+        }.`
       );
-      this.subscribeToProgramLogs();
+      if (this.watchCreates) this.subscribeToProgramLogs();
       this.resubscribePoolWatches();
       this.clearPing();
       this.pingTimer = setInterval(() => {
@@ -453,6 +479,7 @@ export class PoolListener {
           l.includes('Instruction: Create') ||
           l.includes('Program log: Instruction: Create')
       );
+      if (!this.watchCreates) return;
       if (!isRaydiumInit && !isPumpCreate) return;
       if (this.seenSignatures.has(signature)) return;
 
