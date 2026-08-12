@@ -8,6 +8,12 @@ import {
 } from '@solana/web3.js';
 import { isLiveTrading } from '../core/jupiter';
 
+export interface VaultSweepResult {
+  sol: number;
+  signature: string;
+  dryRun: boolean;
+}
+
 export class VaultManager {
   constructor(
     private connection: Connection,
@@ -33,17 +39,19 @@ export class VaultManager {
 
   /**
    * lootSweeper: transfiere PnL neto (lo producido) de A → Cartera B.
-   * Devuelve SOL realmente ruteados (0 si dry-run/sin saldo).
+   * En dry-run no envía on-chain y marca [VAULT_DRY] con el SOL simulado.
    */
-  async sweepProfitsToVault(profitNetSOL: number): Promise<number> {
-    if (profitNetSOL <= 0) return 0;
+  async sweepProfitsToVault(profitNetSOL: number): Promise<VaultSweepResult> {
+    if (profitNetSOL <= 0) {
+      return { sol: 0, signature: '', dryRun: !isLiveTrading() };
+    }
 
     const live = isLiveTrading();
     if (!live) {
       console.log(
         `[VAULT_DRY] +${profitNetSOL.toFixed(4)} SOL → Cartera B (${this.walletBPubkey.toBase58()}) (no enviado, LIVE_TRADING=false)`
       );
-      return 0;
+      return { sol: profitNetSOL, signature: '', dryRun: true };
     }
 
     try {
@@ -55,7 +63,7 @@ export class VaultManager {
 
       if (lamports <= 0) {
         console.warn('[VAULT_SWEEPER] Sin saldo transferible tras reserva de gas.');
-        return 0;
+        return { sol: 0, signature: '', dryRun: false };
       }
 
       console.log(
@@ -74,10 +82,10 @@ export class VaultManager {
         commitment: 'confirmed',
       });
       console.log(`[VAULT_SWEEPER_CONFIRMED] Firma: ${sig}`);
-      return lamports / 1e9;
+      return { sol: lamports / 1e9, signature: sig, dryRun: false };
     } catch (e) {
       console.error('[VAULT_SWEEPER_ERROR] Error transfiriendo a Vault B:', e);
-      return 0;
+      return { sol: 0, signature: '', dryRun: false };
     }
   }
 }
