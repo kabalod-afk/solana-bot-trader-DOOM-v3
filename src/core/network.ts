@@ -1,21 +1,22 @@
-export type NetworkMode = 'testnet' | 'mainnet';
+export type NetworkMode = 'devnet' | 'mainnet';
 
 /**
- * testnet = papel (B0 + radar + Telegram, sin comprar).
+ * devnet = papel (B0 + radar + Telegram, sin comprar).
  * mainnet = compras reales en Cartera B.
  *
  * NETWORK pisa el viejo LIVE_TRADING=true/false.
+ * `testnet` se acepta como alias de `devnet`.
  */
 export function networkMode(): NetworkMode {
   const raw = (process.env.NETWORK || process.env.SOLANA_NETWORK || '')
     .trim()
     .toLowerCase();
   if (raw === 'mainnet' || raw === 'mainnet-beta' || raw === 'live') return 'mainnet';
-  if (raw === 'testnet' || raw === 'devnet' || raw === 'paper') return 'testnet';
+  if (raw === 'devnet' || raw === 'testnet' || raw === 'paper') return 'devnet';
 
   const legacy = (process.env.LIVE_TRADING || '').trim().toLowerCase();
   if (legacy === 'true' || legacy === 'mainnet') return 'mainnet';
-  return 'testnet';
+  return 'devnet';
 }
 
 export function isLiveTrading(): boolean {
@@ -23,5 +24,5 @@ export function isLiveTrading(): boolean {
 }
 
 export function networkLabel(): string {
-  return networkMode() === 'mainnet' ? 'MAINNET (live)' : 'TESTNET (papel, sin compras)';
+  return networkMode() === 'mainnet' ? 'MAINNET (live)' : 'DEVNET (papel, sin compras)';
 }

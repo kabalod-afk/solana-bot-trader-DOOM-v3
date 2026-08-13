@@ -192,8 +192,8 @@ async function bootstrap(): Promise<void> {
   if (!liveTrading) {
     console.log(
       watchPhantom
-        ? '🧪 TESTNET: Phantom Launches → B0 completo → radar 3.5 min; sin compras reales.'
-        : '🧪 TESTNET: Helius → B0 (≥1 SOL, MC $400–$250k) → radar 3.5 min; sin compras reales.'
+        ? '🧪 DEVNET: Phantom Launches → B0 completo → radar 3.5 min; sin compras reales.'
+        : '🧪 DEVNET: Helius → B0 (≥1 SOL, MC $400–$250k) → radar 3.5 min; sin compras reales.'
     );
   }
 
@@ -400,7 +400,7 @@ async function bootstrap(): Promise<void> {
 
       if (!liveTrading) {
         await telegram.sendText(
-          `🤖 *[${botInstanceId}] TESTNET OK:* \`${token.slice(0, 8)}…\` pasó B0+radar (${obsResult.observationTimeMs}ms, ${obsResult.txCount} txs, buy=${(obsResult.buyVolumeRatio * 100).toFixed(0)}%). Helios pedía ${entrySizeSol} SOL. Sin compra real.`
+          `🤖 *[${botInstanceId}] DEVNET OK:* \`${token.slice(0, 8)}…\` pasó B0+radar (${obsResult.observationTimeMs}ms, ${obsResult.txCount} txs, buy=${(obsResult.buyVolumeRatio * 100).toFixed(0)}%). Helios pedía ${entrySizeSol} SOL. Sin compra real.`
         );
         activeTokensSet.delete(token);
         scheduler.releaseThread();
