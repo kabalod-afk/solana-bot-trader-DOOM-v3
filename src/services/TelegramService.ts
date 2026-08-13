@@ -130,7 +130,7 @@ export class TelegramService {
     await this.sendHtml(html);
   }
 
-  /** Paso 1: B0 aprobado → radar de incubación (máx 4 min). */
+  /** Paso 1: B0 aprobado → radar de incubación (máx 3.5 min). */
   public async notifyRadarEntry(
     mint: string,
     poolSol: number,
@@ -144,7 +144,7 @@ export class TelegramService {
       `• <b>Mint:</b> <code>${this.esc(mint)}</code>\n` +
       `• <b>Pool Inicial:</b> ${poolSol.toFixed(2)} SOL\n` +
       `• <b>MC Inicial:</b> $${mcUsd.toFixed(0)} USD\n` +
-      `• <b>Estado:</b> Radar de incubación (Máx 4 min, ≥3 txs + breakout)...` +
+      `• <b>Estado:</b> Radar de incubación (Máx 3.5 min, ≥3 txs + breakout)...` +
       (heliosBrief ? `\n\n${heliosBrief}` : '');
     await this.sendHtml(msg);
   }

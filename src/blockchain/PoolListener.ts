@@ -203,7 +203,7 @@ export function buildWssEndpointList(primary: string): string[] {
 /**
  * Un solo WSS Helius:
  *  - logsSubscribe Raydium/Pump → creates (opcional; off si la fuente es Phantom Launches)
- *  - logsSubscribe por pool/mint durante el radar de incubación (máx 4 min)
+ *  - logsSubscribe por pool/mint durante el radar de incubación (máx 3.5 min)
  */
 export class PoolListener {
   private ws: WebSocket | null = null;

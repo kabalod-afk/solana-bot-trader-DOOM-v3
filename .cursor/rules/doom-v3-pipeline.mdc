@@ -11,7 +11,7 @@ No usar la ventana de observación de 45s de v2. El flujo es:
 
 Por defecto `CANDIDATE_SOURCE=phantom_launches`: se lee la columna **Launches** de Phantom Terminal (`New` / opcional `Migrating` / `Migrated`) vía `POST /sniper/v1/memeExplore`. Eso sustituye el `logsSubscribe` de cada create Pump/Raydium (miles/min). El WSS de Helius queda **solo para el radar** (logs del pool). Fallback: `helius_creates` o `both`.
 
-**Fast-lane (default `PHANTOM_FAST_LANE=true`):** esos tokens ya vienen prefiltrados por Phantom. Se elimina casi toda la admisión Helios (serial, bundlers/snipers/dev, cabal RPC, Jupiter dry-run). Solo queda B0 ligero (pool on-chain ≥ umbral, mint legible) y se pasa **directo al radar 4 min → TP/trailing**.
+**Fast-lane (default `PHANTOM_FAST_LANE=true`):** esos tokens ya vienen prefiltrados por Phantom. Se elimina casi toda la admisión Helios (serial, bundlers/snipers/dev, cabal RPC, Jupiter dry-run). Solo queda B0 ligero (pool on-chain ≥ umbral, mint legible) y se pasa **directo al radar 3.5 min → TP/trailing**.
 
 ## Paso 1 — Filtro B0 (admisión inmediata)
 
@@ -32,13 +32,13 @@ Al detectar un candidato:
 - Antirug cabal + Jupiter dry-run solo si el JSON no tiene memoria.
 - `policy.json_over_api: true` en `helios_brain.json`.
 
-## Paso 2 — Radar de incubación (máx. 4 min)
+## Paso 2 — Radar de incubación (máx. 3.5 min)
 
 Si pasa B0, monitorear en el mismo WSS:
 
 - Mínimo **3** compras orgánicas válidas.
 - Breakout por saltos de precio (ticks Pump/Raydium), ráfaga de volumen o impulso de MC.
-- Si no hay fuerza o se estanca en **4 minutos**, abortar y liberar memoria. No comprar.
+- Si no hay fuerza o se estanca en **3.5 minutos** (`RADAR_MAX_MS=210000`), abortar y liberar memoria. No comprar.
 
 ## Paso 3 — Disparo y salida
 

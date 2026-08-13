@@ -198,8 +198,8 @@ async function bootstrap(): Promise<void> {
   if (!liveTrading) {
     console.log(
       watchPhantom
-        ? `🧪 DRY-RUN: Phantom Launches${phantomFastLane ? ' (fast-lane)' : ''} → B0 ligero → radar 4 min; sin compras.`
-        : '🧪 DRY-RUN: Helius → B0 (≥1 SOL, MC $400–$250k) → radar 4 min; sin compras.'
+        ? `🧪 DRY-RUN: Phantom Launches${phantomFastLane ? ' (fast-lane)' : ''} → B0 ligero → radar 3.5 min; sin compras.`
+        : '🧪 DRY-RUN: Helius → B0 (≥1 SOL, MC $400–$250k) → radar 3.5 min; sin compras.'
     );
   }
 
@@ -211,7 +211,7 @@ async function bootstrap(): Promise<void> {
     }\n• Fases: ${
       watchPhantom && phantomFastLane
         ? 'Launches → B0 ligero → radar → TP/trailing'
-        : `B0 → radar 4 min → TP +${momentum.takeProfitPct}% / trailing ${momentum.trailingStopPct}%`
+        : `B0 → radar 3.5 min → TP +${momentum.takeProfitPct}% / trailing ${momentum.trailingStopPct}%`
     }\n• Cartera A (trabajo): \`${derivedA}\`\n• Cartera B (vault): \`${walletBStr}\``
   );
   await telegram.notifyHelios(
@@ -223,7 +223,7 @@ async function bootstrap(): Promise<void> {
       }\n` +
       (watchPhantom && phantomFastLane
         ? `• Fast-lane: sin serial/bundlers/cabal/Jupiter — directo a radar\n`
-        : `• B0 + radar 4 min + TP/trailing\n`) +
+        : `• B0 + radar 3.5 min + TP/trailing\n`) +
       `• Memoria JSON manda sobre Jupiter/cabal API\n` +
       `• Escribe <code>helios</code> para ver el cerebro`
   );
@@ -594,8 +594,8 @@ async function bootstrap(): Promise<void> {
 
   console.log(
     watchPhantom
-      ? '📡 Phantom Launches + WSS radar — B0 → 4 min → TP/trailing; ticks 4s.'
-      : '📡 PoolListener activo — B0 → radar 4 min (logs WSS) → TP/trailing; ticks 4s.'
+      ? '📡 Phantom Launches + WSS radar — B0 → 3.5 min → TP/trailing; ticks 4s.'
+      : '📡 PoolListener activo — B0 → radar 3.5 min (logs WSS) → TP/trailing; ticks 4s.'
   );
 }
 

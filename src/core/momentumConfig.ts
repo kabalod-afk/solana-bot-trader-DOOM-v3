@@ -24,7 +24,7 @@ export function loadMomentumConfig(heliosMinPoolSol = 1): MomentumConfig {
     minTxCount: num('MIN_TX_COUNT', 3),
     // .env MIN_POOL_SOL pisa el JSON (útil en Ocean). Si no está, manda Helios.
     minPoolSol: Number.isFinite(envPool) ? envPool : heliosMinPoolSol,
-    radarMaxMs: num('RADAR_MAX_MS', 240_000),
+    radarMaxMs: num('RADAR_MAX_MS', 210_000),
     positionMaxMs: num('POSITION_MAX_MS', 240_000),
     takeProfitPct: num('TAKE_PROFIT_PCT', 30),
     trailingStopPct: num('TRAILING_STOP_PCT', 8),

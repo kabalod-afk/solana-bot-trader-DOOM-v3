@@ -331,7 +331,7 @@ export class HeliosEngine {
       `🧠 <b>HELIOS</b> — admisión B0\n` +
       `• Deployer: ${s.seen} vistos / ${s.rejects} rejects / serial ${s.windowSeen}/${serialCap} (${serialWin}h)\n` +
       `• Pool ${poolSol.toFixed(2)} SOL · MC $${mcUsd.toFixed(0)}\n` +
-      `• Veredicto: <b>ADMITIR</b> → radar 4 min (${risk})\n` +
+      `• Veredicto: <b>ADMITIR</b> → radar 3.5 min (${risk})\n` +
       `• JSON: helios_brain.json actualizado`
     );
   }
@@ -542,7 +542,7 @@ export class HeliosEngine {
     }
 
     const w = this.brain.learned_weights;
-    if (isWin && observationWindowTimeMs > 0 && observationWindowTimeMs <= 240_000) {
+    if (isWin && observationWindowTimeMs > 0 && observationWindowTimeMs <= 210_000) {
       w.min_observation_window_ms = Math.min(
         30_000,
         Math.round(w.min_observation_window_ms * 0.8 + observationWindowTimeMs * 0.2)
