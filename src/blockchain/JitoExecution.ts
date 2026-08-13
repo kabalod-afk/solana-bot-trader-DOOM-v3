@@ -41,6 +41,12 @@ export class JitoExecution {
       'https://mainnet.block-engine.jito.wtf';
   }
 
+  /** Saldo SOL nativo de Cartera A (post-rent, en SOL). */
+  async solBalanceA(): Promise<number> {
+    const lamports = await this.connection.getBalance(this.walletA.publicKey);
+    return lamports / 1e9;
+  }
+
   async executeBuy(tokenAddress: string, amountSol: number): Promise<ExecResult> {
     try {
       console.log(`[JITO_BUY_REAL] Firmando swap ${amountSol} SOL -> ${tokenAddress}`);

@@ -172,7 +172,7 @@ export class TelegramService {
     await this.sendHtml(msg);
   }
 
-  /** Paso 3: venta + informe PnL. */
+  /** Paso 3: venta + informe PnL + SOL que vuelve a Cartera A. */
   public async notifyTradeClosed(
     mint: string,
     reason: string,
@@ -182,7 +182,9 @@ export class TelegramService {
     txHash: string,
     symbol?: string,
     vaultB?: string,
-    vaultedSol?: number
+    vaultedSol?: number,
+    walletAReturnedSol?: number,
+    walletABalanceSol?: number
   ): Promise<void> {
     const icon = pnlSol >= 0 ? '🟢' : '🔴';
     const hash = this.esc(txHash || '');
@@ -197,6 +199,17 @@ export class TelegramService {
           : vaultB
             ? `\n• <b>Cartera B (vault):</b> <code>${this.esc(vaultB)}</code> (sin superávit)`
             : '';
+    const walletALine =
+      walletAReturnedSol !== undefined || walletABalanceSol !== undefined
+        ? `\n• <b>Vuelto a Cartera A:</b> ${
+            walletAReturnedSol !== undefined
+              ? `${walletAReturnedSol >= 0 ? '+' : ''}${walletAReturnedSol.toFixed(4)} SOL (Δ venta)`
+              : 'n/d'
+          }` +
+          (walletABalanceSol !== undefined
+            ? `\n• <b>Saldo Cartera A ahora:</b> ${walletABalanceSol.toFixed(4)} SOL`
+            : '')
+        : '';
     const msg =
       `🏁 <b>[TRADE CLOSED] Operación Finalizada</b>\n\n` +
       `• <b>Token:</b> $${this.ticker(mint, symbol)}\n` +
@@ -205,7 +218,48 @@ export class TelegramService {
       `├─ <b>Tiempo Transcurrido:</b> ${durationSec}s\n` +
       `└─ <b>PnL Neto:</b> ${pnlSol >= 0 ? '+' : ''}${pnlSol.toFixed(3)} SOL (${pnlPercent.toFixed(1)}%) ${icon}\n\n` +
       `• <b>Tx Venta:</b> ${link}` +
+      walletALine +
       vaultLine;
+    await this.sendHtml(msg);
+  }
+
+  /** Compra fallida (sin posición abierta). */
+  public async notifyBuyFailed(
+    mint: string,
+    amountSol: number,
+    walletABalanceSol: number,
+    detail?: string
+  ): Promise<void> {
+    const msg =
+      `⚠️ <b>[BUY FAILED] Compra no confirmada</b>\n\n` +
+      `• <b>Token:</b> $${this.ticker(mint)}\n` +
+      `• <b>Intentado:</b> ${amountSol.toFixed(2)} SOL\n` +
+      `• <b>Saldo Cartera A:</b> ${walletABalanceSol.toFixed(4)} SOL` +
+      (detail ? `\n• <b>Detalle:</b> ${this.esc(detail)}` : '');
+    await this.sendHtml(msg);
+  }
+
+  /** Evacuación tras compra si el precio on-chain sale en 0. */
+  public async notifyEntryAbort(
+    mint: string,
+    investedSol: number,
+    sellOk: boolean,
+    txHash: string,
+    walletAReturnedSol: number,
+    walletABalanceSol: number
+  ): Promise<void> {
+    const link = txHash
+      ? `<a href="https://solscan.io/tx/${this.esc(txHash)}">Ver en Solscan</a>`
+      : 'n/d';
+    const msg =
+      `🧯 <b>[ENTRY ABORT] Evacuación post-compra</b>\n\n` +
+      `• <b>Token:</b> $${this.ticker(mint)}\n` +
+      `• <b>Motivo:</b> precio on-chain 0 tras compra\n` +
+      `• <b>Invertido:</b> ~${investedSol.toFixed(2)} SOL\n` +
+      `• <b>Venta:</b> ${sellOk ? 'OK' : 'FALLÓ — revisa tokens en A'}\n` +
+      `• <b>Vuelto a Cartera A:</b> ${walletAReturnedSol >= 0 ? '+' : ''}${walletAReturnedSol.toFixed(4)} SOL (Δ)\n` +
+      `• <b>Saldo Cartera A ahora:</b> ${walletABalanceSol.toFixed(4)} SOL\n` +
+      `• <b>Tx:</b> ${link}`;
     await this.sendHtml(msg);
   }
 
@@ -260,10 +314,20 @@ export class TelegramService {
     botId: string,
     multiplier: number,
     amountUSD: number,
-    type: string
+    type: string,
+    walletAReturnedSol?: number,
+    walletABalanceSol?: number
   ): void {
+    const aLine =
+      walletAReturnedSol !== undefined
+        ? `\n• Vuelto a A: ${walletAReturnedSol >= 0 ? '+' : ''}${walletAReturnedSol.toFixed(4)} SOL`
+        : '';
+    const balLine =
+      walletABalanceSol !== undefined
+        ? `\n• Saldo A ahora: ${walletABalanceSol.toFixed(4)} SOL`
+        : '';
     void this.sendText(
-      `🤖 *[${botId}]* 💰 *TOMA DE COBERTURA (${type})*\nMultiplicador: ${multiplier.toFixed(1)}x | Cobertura Extraída: $${amountUSD} USD`
+      `🤖 *[${botId}]* 💰 *TOMA DE COBERTURA (${type})*\nMultiplicador: ${multiplier.toFixed(1)}x | Cobertura Extraída: $${amountUSD.toFixed(2)} USD${aLine}${balLine}`
     );
   }
 

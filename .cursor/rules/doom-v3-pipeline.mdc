@@ -43,8 +43,8 @@ Si pasa B0, monitorear en el mismo WSS:
 ## Paso 3 — Disparo y salida
 
 - Compra con Cartera A (trabajo).
-- Take profit / cobertura al **+30%**.
-- Trailing stop **8%** tras un rally (protege el margen).
+- Take profit / cobertura al **+35%** (vende ~50%; override `TAKE_PROFIT_PCT`).
+- Trailing stop **10%** desde ATH **solo después del TP** (override `TRAILING_STOP_PCT`). No se arma en el medio camino al TP.
 ## Asistencia Helios
 
 Helios no es solo JSON silencioso. Habla en Telegram:

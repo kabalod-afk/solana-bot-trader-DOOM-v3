@@ -447,6 +447,13 @@ async function bootstrap(): Promise<void> {
 
       const buy = await jito.executeBuy(token, entrySizeSol);
       if (!buy.ok) {
+        const balA = await jito.solBalanceA();
+        void telegram.notifyBuyFailed(
+          token,
+          entrySizeSol,
+          balA,
+          'bundle/RPC no confirmó incremento SPL'
+        );
         activeTokensSet.delete(token);
         scheduler.releaseThread();
         return;
@@ -481,7 +488,17 @@ async function bootstrap(): Promise<void> {
       }
       if (entryTick.currentPriceUSD <= 0) {
         console.error(`[ENTRY_ABORT] ${token}: precio on-chain 0 tras compra — evacuando`);
-        await jito.executeFullSell(token);
+        const balBefore = await jito.solBalanceA();
+        const sell = await jito.executeFullSell(token);
+        const balAfter = await jito.solBalanceA();
+        void telegram.notifyEntryAbort(
+          token,
+          entrySizeSol,
+          sell.ok,
+          sell.signature,
+          balAfter - balBefore,
+          balAfter
+        );
         activeTokensSet.delete(token);
         scheduler.releaseThread();
         return;

@@ -26,7 +26,7 @@ export function loadMomentumConfig(heliosMinPoolSol = 1): MomentumConfig {
     minPoolSol: Number.isFinite(envPool) ? envPool : heliosMinPoolSol,
     radarMaxMs: num('RADAR_MAX_MS', 210_000),
     positionMaxMs: num('POSITION_MAX_MS', 240_000),
-    takeProfitPct: num('TAKE_PROFIT_PCT', 30),
-    trailingStopPct: num('TRAILING_STOP_PCT', 8),
+    takeProfitPct: num('TAKE_PROFIT_PCT', 35),
+    trailingStopPct: num('TRAILING_STOP_PCT', 10),
   };
 }
