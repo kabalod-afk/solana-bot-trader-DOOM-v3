@@ -177,6 +177,9 @@ async function bootstrap(): Promise<void> {
     `Radar: ≥${momentum.minTxCount} txs + breakout | máx ${Math.round(momentum.radarMaxMs / 1000)}s`
   );
   console.log(
+    `Entrada: ${momentum.entrySizeSol} SOL base (alta convicción ~${(momentum.entrySizeSol * 1.5).toFixed(2)} SOL)`
+  );
+  console.log(
     `Salida: TP +${momentum.takeProfitPct}% | trailing ${momentum.trailingStopPct}% ATH | max pos ${Math.round(momentum.positionMaxMs / 1000)}s`
   );
 

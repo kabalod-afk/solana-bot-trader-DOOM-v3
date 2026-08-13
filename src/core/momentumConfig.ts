@@ -7,6 +7,7 @@ export interface MomentumConfig {
   positionMaxMs: number;
   takeProfitPct: number;
   trailingStopPct: number;
+  entrySizeSol: number;
 }
 
 export function loadMomentumConfig(heliosMinPoolSol = 1): MomentumConfig {
@@ -18,6 +19,7 @@ export function loadMomentumConfig(heliosMinPoolSol = 1): MomentumConfig {
   };
 
   const envPool = num('MIN_POOL_SOL', NaN);
+  const entry = num('ENTRY_SIZE_SOL', 0.4);
   return {
     minMcUSD: num('MIN_MC_USD', 400),
     maxMcUSD: num('MAX_MC_USD', 250_000),
@@ -28,5 +30,6 @@ export function loadMomentumConfig(heliosMinPoolSol = 1): MomentumConfig {
     positionMaxMs: num('POSITION_MAX_MS', 240_000),
     takeProfitPct: num('TAKE_PROFIT_PCT', 35),
     trailingStopPct: num('TRAILING_STOP_PCT', 10),
+    entrySizeSol: entry > 0 ? entry : 0.4,
   };
 }

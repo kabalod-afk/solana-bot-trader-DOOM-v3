@@ -1,5 +1,6 @@
 import fs from 'fs';
 import path from 'path';
+import { loadMomentumConfig } from './momentumConfig';
 
 export interface HeliosLearnedWeights {
   min_observation_window_ms: number;
@@ -373,19 +374,21 @@ export class HeliosEngine {
   ): { sizeSol: number; note: string } {
     const w = this.weights();
     const s = this.deployerSnapshot(deployer);
-    let sizeSol = 1.0;
-    let note = 'entrada base 1.0 SOL';
+    const base = loadMomentumConfig(w.min_pool_sol_threshold).entrySizeSol;
+    const boost = Math.round(base * 1.5 * 1000) / 1000;
+    let sizeSol = base;
+    let note = `entrada base ${base} SOL`;
 
     if (poolSol >= w.min_pool_sol_threshold * 3 && buyRatio >= 0.8) {
-      sizeSol = 1.5;
-      note = 'alta convicción (pool + buy ratio)';
+      sizeSol = boost;
+      note = `alta convicción ${boost} SOL (pool + buy ratio)`;
     }
     if (s.rejects >= 2) {
-      sizeSol = Math.min(sizeSol, 1.0);
-      note = 'reduce tamaño: deployer con rejects';
+      sizeSol = Math.min(sizeSol, base);
+      note = `reduce tamaño a ${sizeSol} SOL: deployer con rejects`;
     }
     if (s.seen <= 1 && buyRatio >= 0.7 && poolSol >= w.min_pool_sol_threshold * 2) {
-      sizeSol = Math.max(sizeSol, 1.0);
+      sizeSol = Math.max(sizeSol, base);
     }
     return { sizeSol, note };
   }

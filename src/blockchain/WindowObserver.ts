@@ -235,9 +235,12 @@ export class WindowObserver {
         if (elapsedTime >= 3_000 && totalBuys >= minTxCount && breakout) {
           const isHighConviction =
             buyRatio >= 0.8 && initialPoolSol >= highConvictionPool;
+          const baseEntry = loadMomentumConfig().entrySizeSol;
           return {
             passed: true,
-            entrySizeSol: isHighConviction ? 1.5 : 1.0,
+            entrySizeSol: isHighConviction
+              ? Math.round(baseEntry * 1.5 * 1000) / 1000
+              : baseEntry,
             buyVolumeRatio: buyRatio,
             observationTimeMs: elapsedTime,
             txCount: totalBuys,
