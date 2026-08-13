@@ -64,56 +64,74 @@ function keypairFromMnemonic(
   const { key } = derivePath("m/44'/501'/0'/0'", seed.toString('hex'));
   const fallback = Keypair.fromSeed(key.slice(0, 32));
   throw new Error(
-    `MASTER_MNEMONIC no deriva WALLETB_PUBKEY (probado cuentas 0-20).\n` +
-      `  esperado: ${expectedPubkey}\n` +
+    `MASTER_MNEMONIC no deriva ${expectedPubkey ?? 'la pubkey'}.\n` +
       `  path m/44'/501'/0'/0' → ${fallback.publicKey.toBase58()}`
   );
 }
 
-/** Cartera única (B): firma compras/ventas; el SOL queda aquí. */
+function tryMnemonic(mnemonic: string, expected?: string): LoadedWallet | null {
+  try {
+    const { keypair, path } = keypairFromMnemonic(mnemonic, expected);
+    return { keypair, source: 'mnemonic', path };
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * Cartera única de firma. Prioridad:
+ * 1) WALLETB_PRIVATE_KEY
+ * 2) mnemonic → WALLETB_PUBKEY
+ * 3) mnemonic → WALLETA_PUBKEY (si B no sale del seed)
+ * 4) WALLETA_PRIVATE_KEY
+ * 5) mnemonic cuenta 0
+ */
 export function loadTradingWallet(): LoadedWallet {
-  const expectedPubkey = (process.env.WALLETB_PUBKEY || '').trim();
+  const wantB = (process.env.WALLETB_PUBKEY || '').trim();
+  const wantA = (process.env.WALLETA_PUBKEY || '').trim();
   const privateB = (process.env.WALLETB_PRIVATE_KEY || '').trim();
   const privateA = (process.env.WALLETA_PRIVATE_KEY || '').trim();
   const mnemonic = (process.env.MASTER_MNEMONIC || '').trim();
 
-  if (!expectedPubkey) {
-    throw new Error('Falta WALLETB_PUBKEY (cartera única de trabajo).');
-  }
-
   if (privateB) {
     const secret = parsePrivateKeyEnv(privateB, 'WALLETB_PRIVATE_KEY');
     const keypair = Keypair.fromSecretKey(secret);
-    if (keypair.publicKey.toBase58() !== expectedPubkey) {
+    if (wantB && keypair.publicKey.toBase58() !== wantB) {
       throw new Error(
         `WALLETB_PUBKEY no coincide con WALLETB_PRIVATE_KEY.\n` +
-          `  .env:     ${expectedPubkey}\n` +
+          `  .env:     ${wantB}\n` +
           `  derivada: ${keypair.publicKey.toBase58()}`
       );
     }
     return { keypair, source: 'private_key' };
   }
 
-  if (mnemonic) {
-    const { keypair, path } = keypairFromMnemonic(mnemonic, expectedPubkey);
-    return { keypair, source: 'mnemonic', path };
+  if (mnemonic && wantB) {
+    const loaded = tryMnemonic(mnemonic, wantB);
+    if (loaded) return loaded;
+    console.warn(
+      `[WALLET] WALLETB_PUBKEY ${wantB.slice(0, 8)}… no sale del mnemonic. ` +
+        `Se usa la cartera que sí firma (WALLETA / cuenta 0).`
+    );
+  }
+
+  if (mnemonic && wantA) {
+    const loaded = tryMnemonic(mnemonic, wantA);
+    if (loaded) return loaded;
   }
 
   if (privateA) {
     const secret = parsePrivateKeyEnv(privateA, 'WALLETA_PRIVATE_KEY');
-    const keypair = Keypair.fromSecretKey(secret);
-    if (keypair.publicKey.toBase58() !== expectedPubkey) {
-      throw new Error(
-        'Modo una cartera: hace falta la clave de B.\n' +
-          'Pon WALLETB_PRIVATE_KEY o MASTER_MNEMONIC que derive WALLETB_PUBKEY.\n' +
-          `WALLETA_PRIVATE_KEY firma ${keypair.publicKey.toBase58()}, no ${expectedPubkey}.`
-      );
-    }
-    return { keypair, source: 'private_key' };
+    return { keypair: Keypair.fromSecretKey(secret), source: 'private_key' };
+  }
+
+  if (mnemonic) {
+    const loaded = tryMnemonic(mnemonic);
+    if (loaded) return loaded;
   }
 
   throw new Error(
-    'Falta WALLETB_PRIVATE_KEY o MASTER_MNEMONIC (debe derivar WALLETB_PUBKEY).'
+    'Falta MASTER_MNEMONIC, WALLETB_PRIVATE_KEY o WALLETA_PRIVATE_KEY.'
   );
 }
 

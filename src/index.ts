@@ -50,16 +50,15 @@ interface ActivePosition {
 const sleep = (ms: number) => new Promise<void>((r) => setTimeout(r, ms));
 
 async function bootstrap(): Promise<void> {
-  console.log('🚀 INICIANDO MOTOR DOOM v3 EN MAINNET...');
+  const liveTrading = isLiveTrading();
+  const net = networkMode();
+  console.log(`🚀 INICIANDO MOTOR DOOM v3 — ${networkLabel()}...`);
 
   const rpcUrl = requireEnv('SOLANA_RPC_URL');
   const wssUrl = normalizeHeliusWssUrl(requireEnv('SOLANA_WSS_URL'));
-  const walletBPubkeyEnv = requireEnv('WALLETB_PUBKEY');
   const telegramToken = requireEnv('TELEGRAM_BOT_TOKEN');
   const telegramChatId = requireEnv('TELEGRAM_CHAT_ID');
   const jitoUrl = process.env.JITO_ENGINE_URL;
-  const liveTrading = isLiveTrading();
-  const net = networkMode();
 
   console.log(`RPC:  ${rpcUrl.replace(/api-key=[^&\s]+/gi, 'api-key=***')}`);
   console.log(`WSS:  ${redactWssUrl(wssUrl)}`);
@@ -84,16 +83,9 @@ async function bootstrap(): Promise<void> {
   const loaded = loadTradingWallet();
   const wallet = loaded.keypair;
   const derivedB = wallet.publicKey.toBase58();
-  if (derivedB !== walletBPubkeyEnv) {
-    throw new Error(
-      `WALLETB_PUBKEY no coincide con la keypair cargada.\n` +
-        `  .env:     ${walletBPubkeyEnv}\n` +
-        `  derivada: ${derivedB}`
-    );
-  }
 
   console.log(
-    `🔑 Cartera B (única): ${derivedB} (fuente: ${loaded.source}${loaded.path ? ` ${loaded.path}` : ''})`
+    `🔑 Cartera (única): ${derivedB} (fuente: ${loaded.source}${loaded.path ? ` ${loaded.path}` : ''})`
   );
 
   const helios = new HeliosEngine();
