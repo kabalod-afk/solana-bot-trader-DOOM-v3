@@ -8,6 +8,8 @@ export interface MomentumConfig {
   takeProfitPct: number;
   trailingStopPct: number;
   entrySizeSol: number;
+  /** Si el MC sube ≥ esto × el inicial en el radar → sniper/parabólico, abortar. */
+  maxMcPumpX: number;
 }
 
 export function loadMomentumConfig(heliosMinPoolSol = 1): MomentumConfig {
@@ -31,5 +33,6 @@ export function loadMomentumConfig(heliosMinPoolSol = 1): MomentumConfig {
     takeProfitPct: num('TAKE_PROFIT_PCT', 35),
     trailingStopPct: num('TRAILING_STOP_PCT', 10),
     entrySizeSol: entry > 0 ? entry : 0.4,
+    maxMcPumpX: Math.max(2, num('MAX_MC_PUMP_X', 8)),
   };
 }

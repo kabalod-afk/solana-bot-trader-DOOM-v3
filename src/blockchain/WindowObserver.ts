@@ -231,6 +231,32 @@ export class WindowObserver {
           };
         }
 
+        const mcNow = tracking.currentMcUsd;
+        const mcX =
+          initialMcUsd > 0 && mcNow > 0 ? mcNow / initialMcUsd : 1;
+        if (mcNow >= cfg.maxMcUSD || mcNow >= 1_000_000) {
+          return {
+            passed: false,
+            reason: `RADAR_REJECT: MC $${mcNow.toFixed(0)} ≥ techo $${cfg.maxMcUSD} (no perseguir millones)`,
+            entrySizeSol: 0,
+            buyVolumeRatio: buyRatio,
+            observationTimeMs: elapsedTime,
+            txCount: totalBuys,
+            currentMcUsd: mcNow,
+          };
+        }
+        if (mcX >= cfg.maxMcPumpX) {
+          return {
+            passed: false,
+            reason: `RADAR_REJECT: MC parabólico ${mcX.toFixed(1)}x en radar (máx ${cfg.maxMcPumpX}x; sniper/millones)`,
+            entrySizeSol: 0,
+            buyVolumeRatio: buyRatio,
+            observationTimeMs: elapsedTime,
+            txCount: totalBuys,
+            currentMcUsd: mcNow,
+          };
+        }
+
         const breakout = this.evaluateBreakout(tracking);
         if (elapsedTime >= 3_000 && totalBuys >= minTxCount && breakout) {
           const isHighConviction =

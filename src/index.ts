@@ -157,7 +157,7 @@ async function bootstrap(): Promise<void> {
     `B0: pool≥${momentum.minPoolSol} SOL | MC $${momentum.minMcUSD}-$${momentum.maxMcUSD}`
   );
   console.log(
-    `Radar: ≥${momentum.minTxCount} txs + breakout | máx ${Math.round(momentum.radarMaxMs / 1000)}s`
+    `Radar: ≥${momentum.minTxCount} txs + breakout | máx ${Math.round(momentum.radarMaxMs / 1000)}s | aborta MC≥$${momentum.maxMcUSD} o ${momentum.maxMcPumpX}x`
   );
   console.log(
     `Entrada: ${momentum.entrySizeSol} SOL base (alta convicción ~${(momentum.entrySizeSol * 1.5).toFixed(2)} SOL)`
@@ -238,6 +238,12 @@ async function bootstrap(): Promise<void> {
       });
       if (phantomSkip?.skip) {
         console.log(`[HELIOS_SKIP] ${token}: ${phantomSkip.reason}`);
+        return true;
+      }
+      if (event.phantom.marketCap >= momentum.maxMcUSD) {
+        console.log(
+          `[B0_REJECT] ${token}: MC Phantom $${event.phantom.marketCap.toFixed(0)} ≥ techo $${momentum.maxMcUSD}`
+        );
         return true;
       }
     }
@@ -358,6 +364,17 @@ async function bootstrap(): Promise<void> {
       if (!obsResult.passed) {
         console.log(`[RADAR_REJECT] ${token}: ${obsResult.reason}`);
         helios.noteWindowOutcome(event.deployerAddress, false, obsResult.reason, token);
+        activeTokensSet.delete(token);
+        scheduler.releaseThread();
+        return;
+      }
+
+      const fireMc = obsResult.currentMcUsd ?? b0Result.initialMcUSD;
+      if (fireMc >= momentum.maxMcUSD) {
+        console.log(
+          `[RADAR_REJECT] ${token}: MC al disparo $${fireMc.toFixed(0)} ≥ techo $${momentum.maxMcUSD}`
+        );
+        helios.noteWindowOutcome(event.deployerAddress, false, 'MC techo al disparo', token);
         activeTokensSet.delete(token);
         scheduler.releaseThread();
         return;

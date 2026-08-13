@@ -20,7 +20,7 @@ Al detectar un candidato:
 - `HELIOS_SKIP` si el JSON marca farming, bundling o granja (serial, rejects, blacklist).
 - Métricas Phantom: bundlers / snipers / dev holding sobre umbral → skip.
 - Liquidez on-chain ≥ **1.0 SOL** / `MIN_POOL_SOL`.
-- Market cap inicial en **$400–$250,000** USD.
+- Market cap inicial en **$400–$250,000** USD. Si en radar el MC pasa el techo o sube **≥8×** (`MAX_MC_PUMP_X`) → abortar (no perseguir millones).
 - Mint/freeze authority inactiva y LP quemado (o Pump con pool válido).
 - Antirug cabal + Jupiter dry-run solo si el JSON no tiene memoria.
 - `policy.json_over_api: true` en `helios_brain.json`.
@@ -32,6 +32,7 @@ Si pasa B0, monitorear en el mismo WSS:
 - Mínimo **3** compras orgánicas válidas.
 - Breakout por saltos de precio (ticks Pump/Raydium), ráfaga de volumen o impulso de MC.
 - Si no hay fuerza o se estanca en **3.5 minutos** (`RADAR_MAX_MS=210000`), abortar y liberar memoria. No comprar.
+- Abortar si el MC se va a millones o crece parabólico (`MAX_MC_USD` / `MAX_MC_PUMP_X`).
 
 ## Paso 3 — Disparo y salida
 
