@@ -22,7 +22,7 @@ import { PoolLogMetrics, poolLogMentions } from './blockchain/poolLogMetrics';
 import { loadTradingWallet } from './core/loadWalletA';
 import { loadMomentumConfig } from './core/momentumConfig';
 import { getCachedSolPrice, refreshSolPrice } from './core/solPriceCache';
-import { isLiveTrading } from './core/jupiter';
+import { isLiveTrading, networkLabel, networkMode } from './core/jupiter';
 
 function requireEnv(key: string): string {
   const value = process.env[key];
@@ -59,6 +59,7 @@ async function bootstrap(): Promise<void> {
   const telegramChatId = requireEnv('TELEGRAM_CHAT_ID');
   const jitoUrl = process.env.JITO_ENGINE_URL;
   const liveTrading = isLiveTrading();
+  const net = networkMode();
 
   console.log(`RPC:  ${rpcUrl.replace(/api-key=[^&\s]+/gi, 'api-key=***')}`);
   console.log(`WSS:  ${redactWssUrl(wssUrl)}`);
@@ -155,7 +156,7 @@ async function bootstrap(): Promise<void> {
   const phantomSeedExisting = process.env.PHANTOM_SEED_EXISTING === 'true';
 
   console.log(
-    `Helios ${helios.brain.version} | JSON-first=${helios.jsonOverApi()} | LIVE_TRADING=${liveTrading} | SOL≈$${solPriceUSD}`
+    `Helios ${helios.brain.version} | JSON-first=${helios.jsonOverApi()} | NETWORK=${net} | SOL≈$${solPriceUSD}`
   );
   console.log(
     `Fuente: ${candidateSource}${watchPhantom ? ` (Phantom ${phantomColumns.join(',')})` : ''}${watchCreates ? ' + Helius creates' : ''}`
@@ -191,13 +192,13 @@ async function bootstrap(): Promise<void> {
   if (!liveTrading) {
     console.log(
       watchPhantom
-        ? '🧪 DRY-RUN: Phantom Launches → B0 completo → radar 3.5 min; sin compras.'
-        : '🧪 DRY-RUN: Helius → B0 (≥1 SOL, MC $400–$250k) → radar 3.5 min; sin compras.'
+        ? '🧪 TESTNET: Phantom Launches → B0 completo → radar 3.5 min; sin compras reales.'
+        : '🧪 TESTNET: Helius → B0 (≥1 SOL, MC $400–$250k) → radar 3.5 min; sin compras reales.'
     );
   }
 
   await telegram.sendText(
-    `🟢 *DOOM v3 ONLINE*\n• Modo: ${liveTrading ? 'LIVE' : 'DRY-RUN'}\n• Fuente: ${
+    `🟢 *DOOM v3 ONLINE*\n• Red: ${networkLabel()}\n• Fuente: ${
       watchPhantom
         ? `Phantom Launches (${phantomColumns.join(', ')})`
         : 'Helius creates'
@@ -399,7 +400,7 @@ async function bootstrap(): Promise<void> {
 
       if (!liveTrading) {
         await telegram.sendText(
-          `🤖 *[${botInstanceId}] DRY-RUN OK:* \`${token.slice(0, 8)}…\` pasó B0+radar (${obsResult.observationTimeMs}ms, ${obsResult.txCount} txs, buy=${(obsResult.buyVolumeRatio * 100).toFixed(0)}%). Helios pedía ${entrySizeSol} SOL. Sin compra.`
+          `🤖 *[${botInstanceId}] TESTNET OK:* \`${token.slice(0, 8)}…\` pasó B0+radar (${obsResult.observationTimeMs}ms, ${obsResult.txCount} txs, buy=${(obsResult.buyVolumeRatio * 100).toFixed(0)}%). Helios pedía ${entrySizeSol} SOL. Sin compra real.`
         );
         activeTokensSet.delete(token);
         scheduler.releaseThread();
