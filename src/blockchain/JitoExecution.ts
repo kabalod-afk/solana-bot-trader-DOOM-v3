@@ -41,7 +41,7 @@ export class JitoExecution {
       'https://mainnet.block-engine.jito.wtf';
   }
 
-  /** Saldo SOL nativo de Cartera A (post-rent, en SOL). */
+  /** Saldo SOL nativo de Cartera B (post-rent, en SOL). */
   async solBalanceA(): Promise<number> {
     const lamports = await this.connection.getBalance(this.walletA.publicKey);
     return lamports / 1e9;
@@ -138,7 +138,7 @@ export class JitoExecution {
   ): Promise<ExecResult> {
     const beforeTok = await this.tokenUiBalance(tokenAddress);
     if (beforeTok <= 0) {
-      console.error('[JITO_SELL] Sin tokens en Cartera A');
+      console.error('[JITO_SELL] Sin tokens en Cartera B');
       return FAIL;
     }
     const tx = await this.buildSwapTransaction(tokenAddress, amount, type);

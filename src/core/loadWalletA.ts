@@ -2,18 +2,18 @@ import { Keypair } from '@solana/web3.js';
 import * as bip39 from 'bip39';
 import { derivePath } from 'ed25519-hd-key';
 
-export interface LoadedWalletA {
+export interface LoadedWallet {
   keypair: Keypair;
   source: 'private_key' | 'mnemonic';
   path?: string;
 }
 
-function parsePrivateKeyEnv(raw: string): Uint8Array {
+function parsePrivateKeyEnv(raw: string, envName: string): Uint8Array {
   const t = raw.trim();
   if (t.startsWith('[')) {
     const arr = JSON.parse(t) as number[];
     if (!Array.isArray(arr) || arr.length !== 64) {
-      throw new Error(`WALLETA_PRIVATE_KEY debe ser array JSON de 64 bytes (len=${arr?.length})`);
+      throw new Error(`${envName} debe ser array JSON de 64 bytes (len=${arr?.length})`);
     }
     return Uint8Array.from(arr);
   }
@@ -27,7 +27,7 @@ function parsePrivateKeyEnv(raw: string): Uint8Array {
     return decoded;
   } catch (e) {
     throw new Error(
-      `WALLETA_PRIVATE_KEY inválida (usa JSON [64 bytes] o base58). ${(e as Error).message}`
+      `${envName} inválida (usa JSON [64 bytes] o base58). ${(e as Error).message}`
     );
   }
 }
@@ -64,23 +64,29 @@ function keypairFromMnemonic(
   const { key } = derivePath("m/44'/501'/0'/0'", seed.toString('hex'));
   const fallback = Keypair.fromSeed(key.slice(0, 32));
   throw new Error(
-    `MASTER_MNEMONIC no deriva WALLETA_PUBKEY (probado cuentas 0-20).\n` +
+    `MASTER_MNEMONIC no deriva WALLETB_PUBKEY (probado cuentas 0-20).\n` +
       `  esperado: ${expectedPubkey}\n` +
       `  path m/44'/501'/0'/0' → ${fallback.publicKey.toBase58()}`
   );
 }
 
-export function loadWalletA(): LoadedWalletA {
-  const expectedPubkey = (process.env.WALLETA_PUBKEY || '').trim();
-  const privateRaw = (process.env.WALLETA_PRIVATE_KEY || '').trim();
+/** Cartera única (B): firma compras/ventas; el SOL queda aquí. */
+export function loadTradingWallet(): LoadedWallet {
+  const expectedPubkey = (process.env.WALLETB_PUBKEY || '').trim();
+  const privateB = (process.env.WALLETB_PRIVATE_KEY || '').trim();
+  const privateA = (process.env.WALLETA_PRIVATE_KEY || '').trim();
   const mnemonic = (process.env.MASTER_MNEMONIC || '').trim();
 
-  if (privateRaw) {
-    const secret = parsePrivateKeyEnv(privateRaw);
+  if (!expectedPubkey) {
+    throw new Error('Falta WALLETB_PUBKEY (cartera única de trabajo).');
+  }
+
+  if (privateB) {
+    const secret = parsePrivateKeyEnv(privateB, 'WALLETB_PRIVATE_KEY');
     const keypair = Keypair.fromSecretKey(secret);
-    if (expectedPubkey && keypair.publicKey.toBase58() !== expectedPubkey) {
+    if (keypair.publicKey.toBase58() !== expectedPubkey) {
       throw new Error(
-        `WALLETA_PUBKEY no coincide con WALLETA_PRIVATE_KEY.\n` +
+        `WALLETB_PUBKEY no coincide con WALLETB_PRIVATE_KEY.\n` +
           `  .env:     ${expectedPubkey}\n` +
           `  derivada: ${keypair.publicKey.toBase58()}`
       );
@@ -89,14 +95,29 @@ export function loadWalletA(): LoadedWalletA {
   }
 
   if (mnemonic) {
-    if (!expectedPubkey) {
-      throw new Error('Con MASTER_MNEMONIC debes definir WALLETA_PUBKEY para validar la derivación.');
-    }
     const { keypair, path } = keypairFromMnemonic(mnemonic, expectedPubkey);
     return { keypair, source: 'mnemonic', path };
   }
 
+  if (privateA) {
+    const secret = parsePrivateKeyEnv(privateA, 'WALLETA_PRIVATE_KEY');
+    const keypair = Keypair.fromSecretKey(secret);
+    if (keypair.publicKey.toBase58() !== expectedPubkey) {
+      throw new Error(
+        'Modo una cartera: hace falta la clave de B.\n' +
+          'Pon WALLETB_PRIVATE_KEY o MASTER_MNEMONIC que derive WALLETB_PUBKEY.\n' +
+          `WALLETA_PRIVATE_KEY firma ${keypair.publicKey.toBase58()}, no ${expectedPubkey}.`
+      );
+    }
+    return { keypair, source: 'private_key' };
+  }
+
   throw new Error(
-    'Falta WALLETA_PRIVATE_KEY o MASTER_MNEMONIC. Configura uno de los dos en .env.'
+    'Falta WALLETB_PRIVATE_KEY o MASTER_MNEMONIC (debe derivar WALLETB_PUBKEY).'
   );
+}
+
+/** @deprecated usa loadTradingWallet */
+export function loadWalletA(): LoadedWallet {
+  return loadTradingWallet();
 }

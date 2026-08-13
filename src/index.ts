@@ -7,7 +7,6 @@ import { MemoryScheduler } from './core/MemoryScheduler';
 import { BlockZeroScanner } from './blockchain/BlockZeroScanner';
 import { WindowObserver } from './blockchain/WindowObserver';
 import { JitoExecution } from './blockchain/JitoExecution';
-import { VaultManager } from './strategy/VaultManager';
 import { TelegramService } from './services/TelegramService';
 import { TradeEngine } from './strategy/TradeEngine';
 import {
@@ -20,7 +19,7 @@ import { PhantomLaunchesFeed } from './blockchain/PhantomLaunchesFeed';
 import { parseLaunchColumns } from './blockchain/phantomLaunches';
 import { fetchRealPoolTick, rememberPoolSupply, PoolTickOpts } from './blockchain/poolTick';
 import { PoolLogMetrics, poolLogMentions } from './blockchain/poolLogMetrics';
-import { loadWalletA } from './core/loadWalletA';
+import { loadTradingWallet } from './core/loadWalletA';
 import { loadMomentumConfig } from './core/momentumConfig';
 import { getCachedSolPrice, refreshSolPrice } from './core/solPriceCache';
 import { isLiveTrading } from './core/jupiter';
@@ -55,8 +54,7 @@ async function bootstrap(): Promise<void> {
 
   const rpcUrl = requireEnv('SOLANA_RPC_URL');
   const wssUrl = normalizeHeliusWssUrl(requireEnv('SOLANA_WSS_URL'));
-  const walletAPubkeyEnv = requireEnv('WALLETA_PUBKEY');
-  const walletBPubkey = new PublicKey(requireEnv('WALLETB_PUBKEY'));
+  const walletBPubkeyEnv = requireEnv('WALLETB_PUBKEY');
   const telegramToken = requireEnv('TELEGRAM_BOT_TOKEN');
   const telegramChatId = requireEnv('TELEGRAM_CHAT_ID');
   const jitoUrl = process.env.JITO_ENGINE_URL;
@@ -82,32 +80,26 @@ async function bootstrap(): Promise<void> {
     );
   }
 
-  const loaded = loadWalletA();
-  const walletA = loaded.keypair;
-  const derivedA = walletA.publicKey.toBase58();
-  if (derivedA !== walletAPubkeyEnv) {
+  const loaded = loadTradingWallet();
+  const wallet = loaded.keypair;
+  const derivedB = wallet.publicKey.toBase58();
+  if (derivedB !== walletBPubkeyEnv) {
     throw new Error(
-      `WALLETA_PUBKEY no coincide con la keypair cargada.\n` +
-        `  .env:     ${walletAPubkeyEnv}\n` +
-        `  derivada: ${derivedA}`
+      `WALLETB_PUBKEY no coincide con la keypair cargada.\n` +
+        `  .env:     ${walletBPubkeyEnv}\n` +
+        `  derivada: ${derivedB}`
     );
   }
-  if (derivedA === walletBPubkey.toBase58()) {
-    throw new Error('Cartera A y Cartera B no pueden ser la misma dirección.');
-  }
 
-  const walletBStr = walletBPubkey.toBase58();
   console.log(
-    `🔑 Cartera A (trabajo): ${derivedA} (fuente: ${loaded.source}${loaded.path ? ` ${loaded.path}` : ''})`
+    `🔑 Cartera B (única): ${derivedB} (fuente: ${loaded.source}${loaded.path ? ` ${loaded.path}` : ''})`
   );
-  console.log(`🏦 Cartera B (vault):    ${walletBStr}`);
 
   const helios = new HeliosEngine();
   const scheduler = new MemoryScheduler();
-  const scanner = new BlockZeroScanner(connection, helios, walletA);
+  const scanner = new BlockZeroScanner(connection, helios, wallet);
   const observer = new WindowObserver(connection, helios);
-  const jito = new JitoExecution(connection, walletA, jitoUrl);
-  const vault = new VaultManager(connection, walletA, walletBPubkey);
+  const jito = new JitoExecution(connection, wallet, jitoUrl);
   const telegram = new TelegramService(telegramToken, telegramChatId);
   telegram.registerHeliosStatusHandler(() => helios.statusReport());
 
@@ -209,7 +201,7 @@ async function bootstrap(): Promise<void> {
       watchPhantom
         ? `Phantom Launches (${phantomColumns.join(', ')})`
         : 'Helius creates'
-    }\n• Fases: B0 (Helios+pool+MC+cabal+Jupiter) → radar 3.5 min → TP +${momentum.takeProfitPct}% / trailing ${momentum.trailingStopPct}%\n• Cartera A (trabajo): \`${derivedA}\`\n• Cartera B (vault): \`${walletBStr}\``
+    }\n• Fases: B0 (Helios+pool+MC+cabal+Jupiter) → radar 3.5 min → TP +${momentum.takeProfitPct}% / trailing ${momentum.trailingStopPct}%\n• Cartera B (única): \`${derivedB}\``
   );
   await telegram.notifyHelios(
     `🧠 <b>HELIOS ONLINE</b> — asistencia activa\n` +
@@ -414,7 +406,7 @@ async function bootstrap(): Promise<void> {
         return;
       }
 
-      const balanceLamports = await connection.getBalance(walletA.publicKey);
+      const balanceLamports = await connection.getBalance(wallet.publicKey);
       if (balanceLamports / 1e9 < entrySizeSol + 0.05) {
         console.log(
           `[CAPITAL] ${botInstanceId}: insuficiente para ${entrySizeSol} SOL + gas`
@@ -503,7 +495,6 @@ async function bootstrap(): Promise<void> {
         obsResult.observationTimeMs,
         entrySizeSol,
         jito,
-        vault,
         telegram,
         helios,
         solBeforeBuy

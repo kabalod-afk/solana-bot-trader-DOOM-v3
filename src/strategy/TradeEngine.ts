@@ -1,5 +1,4 @@
 import { JitoExecution } from '../blockchain/JitoExecution';
-import { VaultManager } from './VaultManager';
 import { TelegramService } from '../services/TelegramService';
 import { HeliosEngine } from '../core/HeliosEngine';
 import { loadMomentumConfig } from '../core/momentumConfig';
@@ -12,7 +11,6 @@ export class TradeEngine {
   private trailingArmed = false;
   private entryTimeMs = Date.now();
   private forceCloseRequested = false;
-  private lastVaultedSol = 0;
   private readonly takeProfitMult: number;
   private readonly trailingPct: number;
   private readonly positionMaxMs: number;
@@ -24,10 +22,9 @@ export class TradeEngine {
     private observationTimeMs: number,
     private baseInvestmentSol: number,
     private jito: JitoExecution,
-    private vault: VaultManager,
     private telegram: TelegramService,
     private helios: HeliosEngine,
-    /** Saldo nativo de A ANTES de la compra. El capital de trabajo debe volver aquí. */
+    /** Saldo nativo de B ANTES de la compra. Compra y venta quedan en esta cartera. */
     private solBeforeBuy: number
   ) {
     this.currentSolExposed = baseInvestmentSol;
@@ -96,7 +93,7 @@ export class TradeEngine {
           this.instanceBotId,
           currentMult,
           Math.max(0, realizedPnl * solPrice),
-          `TP +${((this.takeProfitMult - 1) * 100).toFixed(0)}% (cobertura 50% queda en A)`,
+          `TP +${((this.takeProfitMult - 1) * 100).toFixed(0)}% (cobertura 50% queda en B)`,
           returned,
           balAfter
         );
@@ -144,11 +141,8 @@ export class TradeEngine {
 
     const balAfterSell = await this.jito.solBalanceA();
     const returnedSol = balAfterSell - balBefore;
-    // PnL real = lo que hay en A ahora vs lo que había ANTES de comprar.
     const actualPnl = balAfterSell - this.solBeforeBuy;
-    const surplus = Math.max(0, actualPnl);
 
-    await this.vaultProfit(surplus);
     this.helios.updateAfterTrade(
       actualPnl,
       this.observationTimeMs,
@@ -156,22 +150,15 @@ export class TradeEngine {
       wasRug,
       wasRug ? this.deployerAddress : undefined
     );
-    const balFinal = await this.jito.solBalanceA();
-    await this.reportClose(reason, actualPnl, sell.signature, wasRug, returnedSol, balFinal);
+    await this.reportClose(reason, actualPnl, sell.signature, wasRug, returnedSol, balAfterSell);
     return 'CLOSED';
   }
 
   private abortClose(reason: string): 'RUNNING' {
     console.error(
-      `[CLOSE_ABORT] ${this.instanceBotId} venta no confirmada (${reason}) — se reintenta, no se rutea a B`
+      `[CLOSE_ABORT] ${this.instanceBotId} venta no confirmada (${reason}) — se reintenta`
     );
     return 'RUNNING';
-  }
-
-  private async vaultProfit(pnlSol: number): Promise<void> {
-    const surplus = Math.max(0, pnlSol);
-    if (surplus <= 0) return;
-    this.lastVaultedSol += await this.vault.sweepProfitsToVault(surplus);
   }
 
   private async reportClose(
@@ -193,8 +180,6 @@ export class TradeEngine {
       durationSec,
       txHash,
       undefined,
-      this.vault.walletBBase58(),
-      this.lastVaultedSol,
       walletAReturnedSol,
       walletABalanceSol
     );

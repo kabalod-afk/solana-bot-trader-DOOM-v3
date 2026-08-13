@@ -35,8 +35,7 @@ Si pasa B0, monitorear en el mismo WSS:
 
 ## Paso 3 — Disparo y salida
 
-- Compra con Cartera A (trabajo): base **`ENTRY_SIZE_SOL=0.4`** (alta convicción ≈ ×1.5).
-- Venta (TP y cierre) **devuelve SOL a Cartera A**. Solo el superávit real (`saldo A ahora − saldo A antes de comprar`) se rutea a Cartera B.
+- Compra y venta con **Cartera B** (única): base **`ENTRY_SIZE_SOL=0.4`** (alta convicción ≈ ×1.5). El SOL de la venta **queda en B**. No hay Cartera A ni ruteo de vault.
 - Take profit / cobertura al **+35%** (vende ~50%; override `TAKE_PROFIT_PCT`). La cobertura **queda en A**.
 - Trailing stop **10%** desde ATH **solo después del TP** (override `TRAILING_STOP_PCT`). No se arma en el medio camino al TP.
 ## Asistencia Helios

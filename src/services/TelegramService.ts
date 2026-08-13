@@ -172,7 +172,7 @@ export class TelegramService {
     await this.sendHtml(msg);
   }
 
-  /** Paso 3: venta + informe PnL + SOL que vuelve a Cartera A. */
+  /** Paso 3: venta + informe PnL. Todo queda en Cartera B. */
   public async notifyTradeClosed(
     mint: string,
     reason: string,
@@ -181,33 +181,23 @@ export class TelegramService {
     durationSec: number,
     txHash: string,
     symbol?: string,
-    vaultB?: string,
-    vaultedSol?: number,
-    walletAReturnedSol?: number,
-    walletABalanceSol?: number
+    returnedSol?: number,
+    walletBalanceSol?: number
   ): Promise<void> {
     const icon = pnlSol >= 0 ? '🟢' : '🔴';
     const hash = this.esc(txHash || '');
     const link = txHash
       ? `<a href="https://solscan.io/tx/${hash}">Ver en Solscan</a>`
       : 'n/d';
-    const vaultLine =
-      vaultB && (vaultedSol ?? 0) > 0
-        ? `\n• <b>Ruteo a Cartera B:</b> +${(vaultedSol ?? 0).toFixed(3)} SOL → <code>${this.esc(vaultB)}</code>`
-        : vaultB && pnlSol > 0
-          ? `\n• <b>Cartera B (vault):</b> <code>${this.esc(vaultB)}</code> (PnL no ruteado: dry-run o sin saldo)`
-          : vaultB
-            ? `\n• <b>Cartera B (vault):</b> <code>${this.esc(vaultB)}</code> (sin superávit)`
-            : '';
-    const walletALine =
-      walletAReturnedSol !== undefined || walletABalanceSol !== undefined
-        ? `\n• <b>Vuelto a Cartera A:</b> ${
-            walletAReturnedSol !== undefined
-              ? `${walletAReturnedSol >= 0 ? '+' : ''}${walletAReturnedSol.toFixed(4)} SOL (Δ venta)`
+    const walletLine =
+      returnedSol !== undefined || walletBalanceSol !== undefined
+        ? `\n• <b>Vuelto a Cartera B:</b> ${
+            returnedSol !== undefined
+              ? `${returnedSol >= 0 ? '+' : ''}${returnedSol.toFixed(4)} SOL (Δ venta)`
               : 'n/d'
           }` +
-          (walletABalanceSol !== undefined
-            ? `\n• <b>Saldo Cartera A ahora:</b> ${walletABalanceSol.toFixed(4)} SOL`
+          (walletBalanceSol !== undefined
+            ? `\n• <b>Saldo Cartera B ahora:</b> ${walletBalanceSol.toFixed(4)} SOL`
             : '')
         : '';
     const msg =
@@ -218,8 +208,7 @@ export class TelegramService {
       `├─ <b>Tiempo Transcurrido:</b> ${durationSec}s\n` +
       `└─ <b>PnL Neto:</b> ${pnlSol >= 0 ? '+' : ''}${pnlSol.toFixed(3)} SOL (${pnlPercent.toFixed(1)}%) ${icon}\n\n` +
       `• <b>Tx Venta:</b> ${link}` +
-      walletALine +
-      vaultLine;
+      walletLine;
     await this.sendHtml(msg);
   }
 
@@ -227,14 +216,14 @@ export class TelegramService {
   public async notifyBuyFailed(
     mint: string,
     amountSol: number,
-    walletABalanceSol: number,
+    walletBalanceSol: number,
     detail?: string
   ): Promise<void> {
     const msg =
       `⚠️ <b>[BUY FAILED] Compra no confirmada</b>\n\n` +
       `• <b>Token:</b> $${this.ticker(mint)}\n` +
       `• <b>Intentado:</b> ${amountSol.toFixed(2)} SOL\n` +
-      `• <b>Saldo Cartera A:</b> ${walletABalanceSol.toFixed(4)} SOL` +
+      `• <b>Saldo Cartera B:</b> ${walletBalanceSol.toFixed(4)} SOL` +
       (detail ? `\n• <b>Detalle:</b> ${this.esc(detail)}` : '');
     await this.sendHtml(msg);
   }
@@ -245,8 +234,8 @@ export class TelegramService {
     investedSol: number,
     sellOk: boolean,
     txHash: string,
-    walletAReturnedSol: number,
-    walletABalanceSol: number
+    returnedSol: number,
+    walletBalanceSol: number
   ): Promise<void> {
     const link = txHash
       ? `<a href="https://solscan.io/tx/${this.esc(txHash)}">Ver en Solscan</a>`
@@ -256,9 +245,9 @@ export class TelegramService {
       `• <b>Token:</b> $${this.ticker(mint)}\n` +
       `• <b>Motivo:</b> precio on-chain 0 tras compra\n` +
       `• <b>Invertido:</b> ~${investedSol.toFixed(2)} SOL\n` +
-      `• <b>Venta:</b> ${sellOk ? 'OK' : 'FALLÓ — revisa tokens en A'}\n` +
-      `• <b>Vuelto a Cartera A:</b> ${walletAReturnedSol >= 0 ? '+' : ''}${walletAReturnedSol.toFixed(4)} SOL (Δ)\n` +
-      `• <b>Saldo Cartera A ahora:</b> ${walletABalanceSol.toFixed(4)} SOL\n` +
+      `• <b>Venta:</b> ${sellOk ? 'OK' : 'FALLÓ — revisa tokens en B'}\n` +
+      `• <b>Vuelto a Cartera B:</b> ${returnedSol >= 0 ? '+' : ''}${returnedSol.toFixed(4)} SOL (Δ)\n` +
+      `• <b>Saldo Cartera B ahora:</b> ${walletBalanceSol.toFixed(4)} SOL\n` +
       `• <b>Tx:</b> ${link}`;
     await this.sendHtml(msg);
   }
@@ -294,7 +283,7 @@ export class TelegramService {
     priceUSD: number
   ): void {
     void this.sendText(
-      `🤖 *[${botId}]* 🚀 *OPERACIÓN INICIADA (#${opNum})*\n• Token: \`${token}\`\n• Inversión: ${solInjected.toFixed(2)} SOL (Cartera A)\n• Precio: $${priceUSD.toFixed(8)} USD`
+      `🤖 *[${botId}]* 🚀 *OPERACIÓN INICIADA (#${opNum})*\n• Token: \`${token}\`\n• Inversión: ${solInjected.toFixed(2)} SOL (Cartera B)\n• Precio: $${priceUSD.toFixed(8)} USD`
     );
   }
 
@@ -320,11 +309,11 @@ export class TelegramService {
   ): void {
     const aLine =
       walletAReturnedSol !== undefined
-        ? `\n• Vuelto a A: ${walletAReturnedSol >= 0 ? '+' : ''}${walletAReturnedSol.toFixed(4)} SOL`
+        ? `\n• Vuelto a B: ${walletAReturnedSol >= 0 ? '+' : ''}${walletAReturnedSol.toFixed(4)} SOL`
         : '';
     const balLine =
       walletABalanceSol !== undefined
-        ? `\n• Saldo A ahora: ${walletABalanceSol.toFixed(4)} SOL`
+        ? `\n• Saldo B ahora: ${walletABalanceSol.toFixed(4)} SOL`
         : '';
     void this.sendText(
       `🤖 *[${botId}]* 💰 *TOMA DE COBERTURA (${type})*\nMultiplicador: ${multiplier.toFixed(1)}x | Cobertura Extraída: $${amountUSD.toFixed(2)} USD${aLine}${balLine}`
@@ -346,7 +335,7 @@ export class TelegramService {
   ): void {
     const emoji = pnlSol >= 0 ? '🟢 GANANCIA' : '🔴 PÉRDIDA';
     void this.sendText(
-      `🤖 *[${botId}]* ✅ *RESUMEN DE OPERACIÓN*\n• Token: \`${token}\`\n• Inversión Inicial: ${initialSol.toFixed(2)} SOL\n• PnL Net: ${emoji} ${pnlSol > 0 ? '+' : ''}${pnlSol.toFixed(2)} SOL\n• Ruteo a Cartera B (Vault): ${vaultSol.toFixed(2)} SOL`
+      `🤖 *[${botId}]* ✅ *RESUMEN DE OPERACIÓN*\n• Token: \`${token}\`\n• Inversión Inicial: ${initialSol.toFixed(2)} SOL\n• PnL Net: ${emoji} ${pnlSol > 0 ? '+' : ''}${pnlSol.toFixed(2)} SOL\n• Saldo queda en Cartera B`
     );
   }
 }
