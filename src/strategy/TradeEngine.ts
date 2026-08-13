@@ -26,7 +26,9 @@ export class TradeEngine {
     private jito: JitoExecution,
     private vault: VaultManager,
     private telegram: TelegramService,
-    private helios: HeliosEngine
+    private helios: HeliosEngine,
+    /** Saldo nativo de A ANTES de la compra. El capital de trabajo debe volver aquí. */
+    private solBeforeBuy: number
   ) {
     this.currentSolExposed = baseInvestmentSol;
     const cfg = loadMomentumConfig(helios.weights().min_pool_sol_threshold);
@@ -62,7 +64,6 @@ export class TradeEngine {
     if (this.forceCloseRequested) {
       return this.closeFull(
         'Cierre forzado (Telegram)',
-        (metrics.currentPriceUSD / this.entryPriceUSD - 1) * this.currentSolExposed,
         metrics.buyVolumeRatio,
         false,
         false
@@ -73,18 +74,12 @@ export class TradeEngine {
       void this.telegram.sendText(
         `🚨 *[${this.instanceBotId}] RUG PULL EN MEMPOOL.* Evacuado vía Jito.`
       );
-      return this.closeFull(
-        'Rug pull (dev vendiendo)',
-        -this.currentSolExposed,
-        metrics.buyVolumeRatio,
-        true,
-        true
-      );
+      return this.closeFull('Rug pull (dev vendiendo)', metrics.buyVolumeRatio, true, true);
     }
 
     const currentMult = metrics.currentPriceUSD / this.entryPriceUSD;
 
-    // Trailing solo tras TP: no armar en +15% (evita salir en el primer pullback).
+    // Trailing solo tras TP: no armar en el medio camino.
     if (currentMult >= this.takeProfitMult && !this.hasTakenProfit) {
       const balBefore = await this.jito.solBalanceA();
       const ok = await this.jito.executePartialSellByRatio(this.tokenAddress, 0.5);
@@ -96,15 +91,14 @@ export class TradeEngine {
         this.currentSolExposed -= coveredSol;
         this.hasTakenProfit = true;
         this.trailingArmed = true;
-        await this.vaultProfit(realizedPnl);
-        const balFinal = await this.jito.solBalanceA();
+        // Cobertura queda en A. Superávit real se rutea a B solo al cierre.
         this.telegram.notifyTakeProfit(
           this.instanceBotId,
           currentMult,
           Math.max(0, realizedPnl * solPrice),
-          `TP +${((this.takeProfitMult - 1) * 100).toFixed(0)}% (cobertura 50%)`,
+          `TP +${((this.takeProfitMult - 1) * 100).toFixed(0)}% (cobertura 50% queda en A)`,
           returned,
-          balFinal
+          balAfter
         );
       }
     }
@@ -117,7 +111,6 @@ export class TradeEngine {
     if (this.trailingArmed && dropFromPeak >= this.trailingPct) {
       return this.closeFull(
         `Trailing −${(this.trailingPct * 100).toFixed(0)}% ATH`,
-        (metrics.currentPriceUSD / this.entryPriceUSD - 1) * this.currentSolExposed,
         metrics.buyVolumeRatio,
         false,
         false
@@ -128,7 +121,6 @@ export class TradeEngine {
     if (elapsedMs >= this.positionMaxMs && !this.hasTakenProfit) {
       return this.closeFull(
         `Estancamiento ${Math.round(this.positionMaxMs / 1000)}s sin TP`,
-        (metrics.currentPriceUSD / this.entryPriceUSD - 1) * this.currentSolExposed,
         metrics.buyVolumeRatio,
         false,
         false
@@ -140,7 +132,6 @@ export class TradeEngine {
 
   private async closeFull(
     reason: string,
-    pnlSol: number,
     buyVolumeRatio: number,
     wasRug: boolean,
     emergency: boolean
@@ -153,17 +144,20 @@ export class TradeEngine {
 
     const balAfterSell = await this.jito.solBalanceA();
     const returnedSol = balAfterSell - balBefore;
+    // PnL real = lo que hay en A ahora vs lo que había ANTES de comprar.
+    const actualPnl = balAfterSell - this.solBeforeBuy;
+    const surplus = Math.max(0, actualPnl);
 
-    await this.vaultProfit(pnlSol);
+    await this.vaultProfit(surplus);
     this.helios.updateAfterTrade(
-      pnlSol,
+      actualPnl,
       this.observationTimeMs,
       buyVolumeRatio,
       wasRug,
       wasRug ? this.deployerAddress : undefined
     );
     const balFinal = await this.jito.solBalanceA();
-    await this.reportClose(reason, pnlSol, sell.signature, wasRug, returnedSol, balFinal);
+    await this.reportClose(reason, actualPnl, sell.signature, wasRug, returnedSol, balFinal);
     return 'CLOSED';
   }
 

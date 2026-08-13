@@ -196,8 +196,7 @@ export class HeliosEngine {
    */
   public apiGate(
     deployer: string,
-    token: string,
-    phantomClean?: boolean
+    token: string
   ): {
     needCabalRpc: boolean;
     needJupiter: boolean;
@@ -224,18 +223,15 @@ export class HeliosEngine {
     }
 
     const depMem = this.brain.analysis_memory.deployers[deployer];
-    // Phantom Launches ya prefiltró el board → sin cabal RPC ni Jupiter dry-run.
-    const needCabal =
-      phantomClean === true ? false : !depMem || depMem.cabalClean !== true;
-    const needJupiter =
-      phantomClean === true ? false : tokenMem?.jupiterOk !== true;
+    const needCabal = !depMem || depMem.cabalClean !== true;
+    const needJupiter = tokenMem?.jupiterOk !== true;
 
     if (!depMem && !tokenMem) {
       return {
         needCabalRpc: needCabal,
         needJupiter,
         rejectFromJson: null,
-        trust: phantomClean ? 'phantom' : 'sin memoria JSON — API',
+        trust: 'sin memoria JSON — API',
       };
     }
 
@@ -243,7 +239,7 @@ export class HeliosEngine {
       needCabalRpc: needCabal,
       needJupiter,
       rejectFromJson: null,
-      trust: phantomClean ? 'phantom' : 'json',
+      trust: 'json',
     };
   }
 

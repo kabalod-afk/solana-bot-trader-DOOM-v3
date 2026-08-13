@@ -32,8 +32,8 @@ export class VaultManager {
   }
 
   /**
-   * lootSweeper: transfiere PnL neto (lo producido) de A → Cartera B.
-   * Devuelve SOL realmente ruteados (0 si dry-run/sin saldo).
+   * lootSweeper: solo el SUPERÁVIT real (saldo A ahora − saldo A antes de comprar).
+   * El capital de trabajo (lo invertido) se queda en Cartera A. Nunca rutea PnL teórico.
    */
   async sweepProfitsToVault(profitNetSOL: number): Promise<number> {
     if (profitNetSOL <= 0) return 0;

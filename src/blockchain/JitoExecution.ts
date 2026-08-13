@@ -52,14 +52,8 @@ export class JitoExecution {
       console.log(`[JITO_BUY_REAL] Firmando swap ${amountSol} SOL -> ${tokenAddress}`);
       const beforeBal = await this.tokenUiBalance(tokenAddress);
       const tx = await this.buildSwapTransaction(tokenAddress, amountSol, 'BUY');
-      const result = await this.sendJitoBundle(tx, 0.005);
+      const result = await this.sendJitoBundle(tx, 0.0002);
       if (!result.ok) return result;
-
-      const confirmed = await this.confirmSignature(result.signature);
-      if (!confirmed) {
-        console.error('[JITO_BUY] Bundle enviado pero swap no confirmado on-chain');
-        return FAIL;
-      }
 
       const afterBal = await this.tokenUiBalance(tokenAddress);
       if (afterBal <= beforeBal) {
@@ -108,8 +102,7 @@ export class JitoExecution {
       console.log(
         `[JITO_SELL_RATIO] Vendiendo ${(safeRatio * 100).toFixed(0)}% de ${tokenAddress}`
       );
-      const tx = await this.buildSwapTransaction(tokenAddress, safeRatio, 'SELL_RATIO');
-      return await this.sendJitoBundle(tx, 0.005);
+      return await this.executeConfirmedSell(tokenAddress, safeRatio, 'SELL_RATIO', 0.0002);
     } catch (e) {
       console.error('[JITO_SELL_ERROR] Fallo en venta parcial:', e);
       return FAIL;
@@ -119,8 +112,7 @@ export class JitoExecution {
   async executeFullSell(tokenAddress: string): Promise<ExecResult> {
     try {
       console.log(`[JITO_FULL_SELL] Venta 100% de ${tokenAddress}`);
-      const tx = await this.buildSwapTransaction(tokenAddress, 1.0, 'SELL_ALL');
-      return await this.sendJitoBundle(tx, 0.01);
+      return await this.executeConfirmedSell(tokenAddress, 1.0, 'SELL_ALL', 0.0003);
     } catch (e) {
       console.error('[JITO_FULL_SELL_ERROR] Fallo en venta total:', e);
       return FAIL;
@@ -129,13 +121,35 @@ export class JitoExecution {
 
   async executeEmergencyEvacuation(tokenAddress: string): Promise<ExecResult> {
     try {
-      console.log('[JITO_EMERGENCY] EVACUANDO CON PROPINA DE 0.50 SOL...');
-      const tx = await this.buildSwapTransaction(tokenAddress, 1.0, 'SELL_ALL');
-      return await this.sendJitoBundle(tx, 0.5);
+      console.log('[JITO_EMERGENCY] Evacuando (tip 0.001 SOL)...');
+      return await this.executeConfirmedSell(tokenAddress, 1.0, 'SELL_ALL', 0.001);
     } catch (e) {
       console.error('[JITO_EMERGENCY_ERROR] Fallo crítico de evacuación:', e);
       return FAIL;
     }
+  }
+
+  /** Venta solo OK si el SPL de A baja. Evita ruteo/PnL sobre un swap fantasma. */
+  private async executeConfirmedSell(
+    tokenAddress: string,
+    amount: number,
+    type: 'SELL_RATIO' | 'SELL_ALL',
+    tipSol: number
+  ): Promise<ExecResult> {
+    const beforeTok = await this.tokenUiBalance(tokenAddress);
+    if (beforeTok <= 0) {
+      console.error('[JITO_SELL] Sin tokens en Cartera A');
+      return FAIL;
+    }
+    const tx = await this.buildSwapTransaction(tokenAddress, amount, type);
+    const result = await this.sendJitoBundle(tx, tipSol);
+    if (!result.ok) return result;
+    const afterTok = await this.tokenUiBalance(tokenAddress);
+    if (afterTok >= beforeTok) {
+      console.error('[JITO_SELL] SPL no bajó — venta no ruteó SOL a A');
+      return FAIL;
+    }
+    return result;
   }
 
   /**

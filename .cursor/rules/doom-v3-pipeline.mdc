@@ -11,24 +11,17 @@ No usar la ventana de observación de 45s de v2. El flujo es:
 
 Por defecto `CANDIDATE_SOURCE=phantom_launches`: se lee la columna **Launches** de Phantom Terminal (`New` / opcional `Migrating` / `Migrated`) vía `POST /sniper/v1/memeExplore`. Eso sustituye el `logsSubscribe` de cada create Pump/Raydium (miles/min). El WSS de Helius queda **solo para el radar** (logs del pool). Fallback: `helius_creates` o `both`.
 
-**Fast-lane (default `PHANTOM_FAST_LANE=true`):** esos tokens ya vienen prefiltrados por Phantom. Se elimina casi toda la admisión Helios (serial, bundlers/snipers/dev, cabal RPC, Jupiter dry-run). Solo queda B0 ligero (pool on-chain ≥ umbral, mint legible) y se pasa **directo al radar 3.5 min → TP/trailing**.
+**Phantom es solo la fuente de candidatos.** Aunque el board ya venga prefiltrado, **antes del radar (fase 1)** corre el B0 completo: Helios serial/rejects/blacklist, bundlers/snipers/dev de Phantom, pool, MC, mint/LP, cabal RPC y Jupiter dry-run si el JSON no tiene memoria.
 
-## Paso 1 — Filtro B0 (admisión inmediata)
+## Paso 1 — Filtro B0 (admisión inmediata, también si viene de Phantom)
 
 Al detectar un candidato:
 
-### Si viene de Phantom Launches (fast-lane)
-
-- No `HELIOS_SKIP` por serial/rejects/bundlers (solo blacklist de rug confirmado).
-- Liquidez on-chain ≥ **1.0 SOL** (o `MIN_POOL_SOL` del `.env`).
-- Sin cabal RPC ni Jupiter dry-run (Phantom ya filtró el board).
-- MC fuera de rango on-chain **no bloquea** — confía en board + radar.
-
-### Si viene de Helius creates (modo legacy)
-
-- `HELIOS_SKIP` si el JSON marca farming, bundling o granja de bots.
-- Liquidez ≥ **1.0 SOL** / `MIN_POOL_SOL`.
+- `HELIOS_SKIP` si el JSON marca farming, bundling o granja (serial, rejects, blacklist).
+- Métricas Phantom: bundlers / snipers / dev holding sobre umbral → skip.
+- Liquidez on-chain ≥ **1.0 SOL** / `MIN_POOL_SOL`.
 - Market cap inicial en **$400–$250,000** USD.
+- Mint/freeze authority inactiva y LP quemado (o Pump con pool válido).
 - Antirug cabal + Jupiter dry-run solo si el JSON no tiene memoria.
 - `policy.json_over_api: true` en `helios_brain.json`.
 
@@ -43,7 +36,8 @@ Si pasa B0, monitorear en el mismo WSS:
 ## Paso 3 — Disparo y salida
 
 - Compra con Cartera A (trabajo): base **`ENTRY_SIZE_SOL=0.4`** (alta convicción ≈ ×1.5).
-- Take profit / cobertura al **+35%** (vende ~50%; override `TAKE_PROFIT_PCT`).
+- Venta (TP y cierre) **devuelve SOL a Cartera A**. Solo el superávit real (`saldo A ahora − saldo A antes de comprar`) se rutea a Cartera B.
+- Take profit / cobertura al **+35%** (vende ~50%; override `TAKE_PROFIT_PCT`). La cobertura **queda en A**.
 - Trailing stop **10%** desde ATH **solo después del TP** (override `TRAILING_STOP_PCT`). No se arma en el medio camino al TP.
 ## Asistencia Helios
 
