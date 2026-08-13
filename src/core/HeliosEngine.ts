@@ -223,9 +223,11 @@ export class HeliosEngine {
     }
 
     const depMem = this.brain.analysis_memory.deployers[deployer];
+    // Phantom Launches ya prefiltró el board → sin cabal RPC ni Jupiter dry-run.
     const needCabal =
       phantomClean === true ? false : !depMem || depMem.cabalClean !== true;
-    const needJupiter = tokenMem?.jupiterOk !== true;
+    const needJupiter =
+      phantomClean === true ? false : tokenMem?.jupiterOk !== true;
 
     if (!depMem && !tokenMem) {
       return {
@@ -240,7 +242,7 @@ export class HeliosEngine {
       needCabalRpc: needCabal,
       needJupiter,
       rejectFromJson: null,
-      trust: 'json',
+      trust: phantomClean ? 'phantom' : 'json',
     };
   }
 

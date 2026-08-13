@@ -161,12 +161,14 @@ async function bootstrap(): Promise<void> {
   const phantomColumns = parseLaunchColumns(process.env.PHANTOM_LAUNCH_COLUMNS);
   const phantomPollMs = Number(process.env.PHANTOM_LAUNCH_POLL_MS || 4000);
   const phantomSeedExisting = process.env.PHANTOM_SEED_EXISTING === 'true';
+  // Por defecto: Launches de Phantom = admisión ligera → radar directo.
+  const phantomFastLane = process.env.PHANTOM_FAST_LANE !== 'false';
 
   console.log(
     `Helios ${helios.brain.version} | JSON-first=${helios.jsonOverApi()} | LIVE_TRADING=${liveTrading} | SOL≈$${solPriceUSD}`
   );
   console.log(
-    `Fuente: ${candidateSource}${watchPhantom ? ` (Phantom ${phantomColumns.join(',')})` : ''}${watchCreates ? ' + Helius creates' : ''}`
+    `Fuente: ${candidateSource}${watchPhantom ? ` (Phantom ${phantomColumns.join(',')}${phantomFastLane ? ', fast-lane' : ''})` : ''}${watchCreates ? ' + Helius creates' : ''}`
   );
   console.log(
     `B0: pool≥${momentum.minPoolSol} SOL | MC $${momentum.minMcUSD}-$${momentum.maxMcUSD}`
@@ -196,7 +198,7 @@ async function bootstrap(): Promise<void> {
   if (!liveTrading) {
     console.log(
       watchPhantom
-        ? '🧪 DRY-RUN: Phantom Launches → B0 → radar 4 min; sin compras. Sin firehose de creates Helius.'
+        ? `🧪 DRY-RUN: Phantom Launches${phantomFastLane ? ' (fast-lane)' : ''} → B0 ligero → radar 4 min; sin compras.`
         : '🧪 DRY-RUN: Helius → B0 (≥1 SOL, MC $400–$250k) → radar 4 min; sin compras.'
     );
   }
@@ -204,9 +206,13 @@ async function bootstrap(): Promise<void> {
   await telegram.sendText(
     `🟢 *DOOM v3 ONLINE*\n• Modo: ${liveTrading ? 'LIVE' : 'DRY-RUN'}\n• Fuente: ${
       watchPhantom
-        ? `Phantom Launches (${phantomColumns.join(', ')})`
+        ? `Phantom Launches (${phantomColumns.join(', ')}${phantomFastLane ? ', fast-lane' : ''})`
         : 'Helius creates'
-    }\n• Fases: B0 → radar 4 min → TP +${momentum.takeProfitPct}% / trailing ${momentum.trailingStopPct}%\n• Cartera A (trabajo): \`${derivedA}\`\n• Cartera B (vault): \`${walletBStr}\``
+    }\n• Fases: ${
+      watchPhantom && phantomFastLane
+        ? 'Launches → B0 ligero → radar → TP/trailing'
+        : `B0 → radar 4 min → TP +${momentum.takeProfitPct}% / trailing ${momentum.trailingStopPct}%`
+    }\n• Cartera A (trabajo): \`${derivedA}\`\n• Cartera B (vault): \`${walletBStr}\``
   );
   await telegram.notifyHelios(
     `🧠 <b>HELIOS ONLINE</b> — asistencia activa\n` +
@@ -215,44 +221,63 @@ async function bootstrap(): Promise<void> {
           ? 'columna Launches de Phantom (prefiltrada)'
           : 'creates Helius Pump/Raydium'
       }\n` +
-      `• B0 + radar 4 min + TP/trailing siguen iguales\n` +
+      (watchPhantom && phantomFastLane
+        ? `• Fast-lane: sin serial/bundlers/cabal/Jupiter — directo a radar\n`
+        : `• B0 + radar 4 min + TP/trailing\n`) +
       `• Memoria JSON manda sobre Jupiter/cabal API\n` +
       `• Escribe <code>helios</code> para ver el cerebro`
   );
 
   const processBlockZeroChain = async (event: NewPoolEvent): Promise<boolean> => {
     const token = event.tokenAddress;
+    const fromPhantom = !!event.phantom;
+    const fastLane = fromPhantom && phantomFastLane;
 
     if (!event.poolAddress || !event.tokenAddress) return true;
     if (telegram.isPaused()) return false;
     if (activeTokensSet.has(token) || inflightTokens.has(token)) return false;
     if (!scheduler.canSpawnThread()) return false;
 
-    const heliosSkip = helios.shouldSkipAnalysis(event.deployerAddress);
-    if (heliosSkip?.skip) {
-      console.log(`[HELIOS_SKIP] ${token}: ${heliosSkip.reason}`);
-      if (/blacklist|rug/i.test(heliosSkip.reason)) {
+    if (fastLane) {
+      // Phantom ya prefiltró: solo blacklist si conocemos deployer.
+      if (event.deployerAddress && helios.isBlacklisted(event.deployerAddress)) {
+        console.log(`[HELIOS_SKIP] ${token}: deployer en blacklist (rug confirmado)`);
         void telegram.notifyHelios(
-          `🧠 <b>HELIOS_SKIP</b>\n<code>${token.slice(0, 8)}…</code>\n${heliosSkip.reason}`
+          `🧠 <b>HELIOS_SKIP</b>\n<code>${token.slice(0, 8)}…</code>\ndeployer en blacklist`
         );
-      }
-      return true;
-    }
-
-    helios.noteSeen(event.deployerAddress);
-
-    if (event.phantom) {
-      const phantomSkip = helios.shouldSkipPhantomMetrics({
-        bundlersHolding: event.phantom.bundlersHolding,
-        snipersHolding: event.phantom.snipersHolding,
-        devHolding: event.phantom.devHolding,
-        token,
-      });
-      if (phantomSkip?.skip) {
-        console.log(`[HELIOS_SKIP] ${token}: ${phantomSkip.reason}`);
         return true;
       }
+      console.log(
+        `[PHANTOM_FAST] ${event.phantom?.symbol || token.slice(0, 8)} → B0 ligero → radar ` +
+          `(mc≈$${event.phantom?.marketCap?.toFixed(0) ?? '?'})`
+      );
+    } else {
+      const heliosSkip = helios.shouldSkipAnalysis(event.deployerAddress);
+      if (heliosSkip?.skip) {
+        console.log(`[HELIOS_SKIP] ${token}: ${heliosSkip.reason}`);
+        if (/blacklist|rug/i.test(heliosSkip.reason)) {
+          void telegram.notifyHelios(
+            `🧠 <b>HELIOS_SKIP</b>\n<code>${token.slice(0, 8)}…</code>\n${heliosSkip.reason}`
+          );
+        }
+        return true;
+      }
+
+      if (event.phantom) {
+        const phantomSkip = helios.shouldSkipPhantomMetrics({
+          bundlersHolding: event.phantom.bundlersHolding,
+          snipersHolding: event.phantom.snipersHolding,
+          devHolding: event.phantom.devHolding,
+          token,
+        });
+        if (phantomSkip?.skip) {
+          console.log(`[HELIOS_SKIP] ${token}: ${phantomSkip.reason}`);
+          return true;
+        }
+      }
     }
+
+    if (event.deployerAddress) helios.noteSeen(event.deployerAddress);
 
     inflightTokens.add(token);
 

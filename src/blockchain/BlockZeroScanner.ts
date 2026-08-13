@@ -44,14 +44,26 @@ export class BlockZeroScanner {
     deployerAddress: string,
     opts?: AuditTokenOpts
   ): Promise<BlockZeroResult> {
-    const skip = this.helios.shouldSkipAnalysis(deployerAddress);
-    if (skip?.skip) {
-      return {
-        passed: false,
-        reason: skip.reason,
-        initialMcUSD: 0,
-        initialPoolSol: 0,
-      };
+    // Phantom fast-lane: no serial/rejects al entrar; solo blacklist.
+    if (opts?.phantomClean === true) {
+      if (deployerAddress && this.helios.isBlacklisted(deployerAddress)) {
+        return {
+          passed: false,
+          reason: 'HELIOS_SKIP: deployer en blacklist (rug confirmado)',
+          initialMcUSD: 0,
+          initialPoolSol: 0,
+        };
+      }
+    } else {
+      const skip = this.helios.shouldSkipAnalysis(deployerAddress);
+      if (skip?.skip) {
+        return {
+          passed: false,
+          reason: skip.reason,
+          initialMcUSD: 0,
+          initialPoolSol: 0,
+        };
+      }
     }
 
     let mint: PublicKey;
@@ -114,11 +126,22 @@ export class BlockZeroScanner {
       try {
         deployer = new PublicKey(creatorFromCurve);
         deployerAddress = creatorFromCurve;
-        const lateSkip = this.helios.shouldSkipAnalysis(deployerAddress);
-        if (lateSkip?.skip) {
+        // Phantom fast-lane: no serial/rejects — solo blacklist real.
+        if (opts?.phantomClean !== true) {
+          const lateSkip = this.helios.shouldSkipAnalysis(deployerAddress);
+          if (lateSkip?.skip) {
+            return {
+              passed: false,
+              reason: lateSkip.reason,
+              initialMcUSD: 0,
+              initialPoolSol: poolMetrics.solAmount,
+              resolvedDeployer: deployerAddress,
+            };
+          }
+        } else if (this.helios.isBlacklisted(deployerAddress)) {
           return {
             passed: false,
-            reason: lateSkip.reason,
+            reason: 'HELIOS_SKIP: deployer en blacklist (rug confirmado)',
             initialMcUSD: 0,
             initialPoolSol: poolMetrics.solAmount,
             resolvedDeployer: deployerAddress,
@@ -153,18 +176,24 @@ export class BlockZeroScanner {
       ((poolMetrics.solAmount * solPriceUSD) / poolMetrics.tokenAmount) *
       poolMetrics.totalSupply;
 
-    // Momentum: fuera de rango → consola/PM2 únicamente (sin Telegram)
+    // Momentum: fuera de rango. Phantom fast-lane: solo pool duro; MC lo filtra board + radar.
     if (
       poolMetrics.solAmount < minPoolRequired ||
       initialMcUSD < momentum.minMcUSD ||
       initialMcUSD > momentum.maxMcUSD
     ) {
-      return {
-        passed: false,
-        reason: `Fuera de rango de momentum (${poolMetrics.solAmount.toFixed(2)} SOL, $${initialMcUSD.toFixed(0)} MC; rango $${momentum.minMcUSD}-$${momentum.maxMcUSD}, pool≥${minPoolRequired})`,
-        initialMcUSD,
-        initialPoolSol: poolMetrics.solAmount,
-      };
+      if (opts?.phantomClean === true && poolMetrics.solAmount >= minPoolRequired) {
+        console.log(
+          `[PHANTOM_FAST] MC on-chain $${initialMcUSD.toFixed(0)} fuera de rango — se admite por board Phantom (pool ${poolMetrics.solAmount.toFixed(2)} SOL)`
+        );
+      } else {
+        return {
+          passed: false,
+          reason: `Fuera de rango de momentum (${poolMetrics.solAmount.toFixed(2)} SOL, $${initialMcUSD.toFixed(0)} MC; rango $${momentum.minMcUSD}-$${momentum.maxMcUSD}, pool≥${minPoolRequired})`,
+          initialMcUSD,
+          initialPoolSol: poolMetrics.solAmount,
+        };
+      }
     }
 
     let mintSafe = poolMetrics.mintSafe;

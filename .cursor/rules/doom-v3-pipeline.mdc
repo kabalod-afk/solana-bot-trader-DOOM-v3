@@ -11,15 +11,25 @@ No usar la ventana de observación de 45s de v2. El flujo es:
 
 Por defecto `CANDIDATE_SOURCE=phantom_launches`: se lee la columna **Launches** de Phantom Terminal (`New` / opcional `Migrating` / `Migrated`) vía `POST /sniper/v1/memeExplore`. Eso sustituye el `logsSubscribe` de cada create Pump/Raydium (miles/min). El WSS de Helius queda **solo para el radar** (logs del pool). Fallback: `helius_creates` o `both`.
 
+**Fast-lane (default `PHANTOM_FAST_LANE=true`):** esos tokens ya vienen prefiltrados por Phantom. Se elimina casi toda la admisión Helios (serial, bundlers/snipers/dev, cabal RPC, Jupiter dry-run). Solo queda B0 ligero (pool on-chain ≥ umbral, mint legible) y se pasa **directo al radar 4 min → TP/trailing**.
+
 ## Paso 1 — Filtro B0 (admisión inmediata)
 
-Al detectar un candidato (Phantom Launches o create Helius/Pump):
+Al detectar un candidato:
 
-- `HELIOS_SKIP` si el JSON de Helios marca farming, bundling o granja de bots (serial deploys, rejects, blacklist).
-- Liquidez de nacimiento ≥ **1.0 SOL** (`helios_brain.json`). En Ocean puedes pisarlo con `MIN_POOL_SOL` en el `.env`. Si no: `B0_REJECT: Pool insuficiente`. El radar (fase 2) corta los que no tienen fuerza.
-- Market cap inicial en **$400–$250,000** USD (override con `MIN_MC_USD` / `MAX_MC_USD`).
-- Antirug: cabal/bundling y Jupiter dry-run **solo si el JSON no tiene memoria** de ese deployer. Si Helios ya aprendió (`jupiterOk`, `cabalClean`, fails repetidos), no se vuelve a llamar la API.
-- Umbral de pool mínimo: `MIN_POOL_SOL` del `.env` si está definido; si no, `learned_weights.min_pool_sol_threshold` del JSON.
+### Si viene de Phantom Launches (fast-lane)
+
+- No `HELIOS_SKIP` por serial/rejects/bundlers (solo blacklist de rug confirmado).
+- Liquidez on-chain ≥ **1.0 SOL** (o `MIN_POOL_SOL` del `.env`).
+- Sin cabal RPC ni Jupiter dry-run (Phantom ya filtró el board).
+- MC fuera de rango on-chain **no bloquea** — confía en board + radar.
+
+### Si viene de Helius creates (modo legacy)
+
+- `HELIOS_SKIP` si el JSON marca farming, bundling o granja de bots.
+- Liquidez ≥ **1.0 SOL** / `MIN_POOL_SOL`.
+- Market cap inicial en **$400–$250,000** USD.
+- Antirug cabal + Jupiter dry-run solo si el JSON no tiene memoria.
 - `policy.json_over_api: true` en `helios_brain.json`.
 
 ## Paso 2 — Radar de incubación (máx. 4 min)
